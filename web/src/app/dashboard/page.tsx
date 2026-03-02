@@ -31,6 +31,7 @@ export default function DashboardPage() {
       setAuthReady(true);
       if (user) {
         try {
+          await user.getIdToken();
           await assignMachineToUser(user.uid);
           setSessionError(null);
           unsubscribeMachine = subscribeToMachine(

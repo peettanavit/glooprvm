@@ -27,7 +27,7 @@ export default function ProfilePage() {
     let unsubscribeProfile: (() => void) | null = null;
     let unsubscribeSessions: (() => void) | null = null;
 
-    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+    const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
       if (unsubscribeProfile) {
         unsubscribeProfile();
         unsubscribeProfile = null;
@@ -42,8 +42,14 @@ export default function ProfilePage() {
         return;
       }
 
-      unsubscribeProfile = subscribeToUserProfile(user.uid, setProfile, () => router.replace("/login"));
-      unsubscribeSessions = subscribeToUserSessions(user.uid, setSessions, () => router.replace("/login"));
+      try {
+        await user.getIdToken();
+        unsubscribeProfile = subscribeToUserProfile(user.uid, setProfile, () => router.replace("/login"));
+        unsubscribeSessions = subscribeToUserSessions(user.uid, setSessions, () => router.replace("/login"));
+      } catch (error) {
+        console.error("Failed to initialize profile listeners:", error);
+        router.replace("/login");
+      }
     });
 
     return () => {

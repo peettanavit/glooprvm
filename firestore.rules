@@ -1,26 +1,39 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isActiveStatus(status) {
+      return status in ['READY', 'PROCESSING', 'REJECTED'];
+    }
+
     match /machines/{machineId} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null && (
-        // First claim when machine has no current user.
-        (!exists(/databases/$(database)/documents/machines/$(machineId)) &&
-          request.resource.data.current_user == request.auth.uid) ||
-        // Claim machine when it is currently unassigned.
+      allow read: if isSignedIn();
+
+      // First claim must bind machine ownership to the signed-in user.
+      allow create: if isSignedIn()
+        && request.resource.data.current_user == request.auth.uid;
+
+      allow update: if isSignedIn() && (
+        // Active owner can keep updating machine state.
+        resource.data.current_user == request.auth.uid ||
+        // Claim unassigned machine.
         (resource.data.current_user == "" &&
           request.resource.data.current_user == request.auth.uid) ||
-        // Active owner can keep updating machine state.
-        resource.data.current_user == request.auth.uid
+        // Reclaim machine from stale inactive state (IDLE/COMPLETED).
+        (!isActiveStatus(resource.data.status) &&
+          request.resource.data.current_user == request.auth.uid)
       );
     }
 
     match /users/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+      allow read, write: if isSignedIn() && request.auth.uid == userId;
     }
 
     match /users/{userId}/sessions/{sessionId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+      allow read, write: if isSignedIn() && request.auth.uid == userId;
     }
   }
 }

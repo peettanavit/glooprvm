@@ -27,7 +27,7 @@ export default function RewardsPage() {
   useEffect(() => {
     let unsubscribeProfile: (() => void) | null = null;
 
-    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+    const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
       if (unsubscribeProfile) {
         unsubscribeProfile();
         unsubscribeProfile = null;
@@ -38,7 +38,13 @@ export default function RewardsPage() {
         return;
       }
 
-      unsubscribeProfile = subscribeToUserProfile(user.uid, setProfile, () => router.replace("/login"));
+      try {
+        await user.getIdToken();
+        unsubscribeProfile = subscribeToUserProfile(user.uid, setProfile, () => router.replace("/login"));
+      } catch (error) {
+        console.error("Failed to initialize rewards listener:", error);
+        router.replace("/login");
+      }
     });
 
     return () => {

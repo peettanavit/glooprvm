@@ -32,7 +32,7 @@ export default function SummaryPage() {
   useEffect(() => {
     let unsubscribeMachine: (() => void) | null = null;
 
-    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+    const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
       if (unsubscribeMachine) {
         unsubscribeMachine();
         unsubscribeMachine = null;
@@ -43,42 +43,48 @@ export default function SummaryPage() {
         return;
       }
 
-      unsubscribeMachine = subscribeToMachine(
-        (state) => {
-          setMachine(state);
-          if (!manualMode && state.status !== "COMPLETED") {
-            router.replace("/dashboard");
-            return;
-          }
+      try {
+        await user.getIdToken();
+        unsubscribeMachine = subscribeToMachine(
+          (state) => {
+            setMachine(state);
+            if (!manualMode && state.status !== "COMPLETED") {
+              router.replace("/dashboard");
+              return;
+            }
 
-          if (state.current_user !== user.uid || !state.session_id) {
-            return;
-          }
+            if (state.current_user !== user.uid || !state.session_id) {
+              return;
+            }
 
-          if (savedSessionRef.current === state.session_id) {
-            return;
-          }
+            if (savedSessionRef.current === state.session_id) {
+              return;
+            }
 
-          setSaving(true);
-          setSaveError(null);
-          void persistUserSessionScore(user.uid, state)
-            .then(() => {
-              savedSessionRef.current = state.session_id ?? "";
-              setSaved(true);
-            })
-            .catch((error: unknown) => {
-              const message = error instanceof Error ? error.message : "Failed to save score";
-              setSaveError(message);
-            })
-            .finally(() => {
-              setSaving(false);
-            });
-        },
-        (error) => {
-          console.error("Machine listener error:", error);
-          router.replace("/login");
-        },
-      );
+            setSaving(true);
+            setSaveError(null);
+            void persistUserSessionScore(user.uid, state)
+              .then(() => {
+                savedSessionRef.current = state.session_id ?? "";
+                setSaved(true);
+              })
+              .catch((error: unknown) => {
+                const message = error instanceof Error ? error.message : "Failed to save score";
+                setSaveError(message);
+              })
+              .finally(() => {
+                setSaving(false);
+              });
+          },
+          (error) => {
+            console.error("Machine listener error:", error);
+            router.replace("/login");
+          },
+        );
+      } catch (error) {
+        console.error("Failed to initialize summary listener:", error);
+        router.replace("/login");
+      }
     });
 
     return () => {
