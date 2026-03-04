@@ -19,3 +19,6 @@ edge/.venv2/
 edge/__pycache__/
 *.pyc
 
+# ESP32
+esp32/config.h
+

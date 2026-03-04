@@ -9,6 +9,15 @@ service cloud.firestore {
       return status in ['READY', 'PROCESSING', 'REJECTED'];
     }
 
+    function isMachineClient() {
+      return isSignedIn()
+        && request.auth.token.email is string
+        && (
+          request.auth.token.email.matches('^machine-.*@.*$') ||
+          request.auth.token.email == 'Tanavit.parn@gmail.com'
+        );
+    }
+
     match /machines/{machineId} {
       allow read: if isSignedIn();
 
@@ -25,6 +34,15 @@ service cloud.firestore {
         // Reclaim machine from stale inactive state (IDLE/COMPLETED).
         (!isActiveStatus(resource.data.status) &&
           request.resource.data.current_user == request.auth.uid)
+        ||
+        // Machine device account can only update runtime machine state fields.
+        (isMachineClient()
+          && request.resource.data.current_user == resource.data.current_user
+          && request.resource.data.session_id == resource.data.session_id
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'status',
+            'session_score'
+          ]))
       );
     }
 

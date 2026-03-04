@@ -1,4 +1,6 @@
-# Gloop Edge Service
+# Gloop Edge Service (Legacy Raspberry Pi Path)
+
+For new setup, use `../esp32` to run the machine loop directly on ESP32.
 
 `rvm_service.py` runs on Raspberry Pi and controls the machine loop:
 - listens to `machines/Gloop_01`
