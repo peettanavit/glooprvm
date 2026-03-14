@@ -80,19 +80,43 @@ bool initCamera() {
   config.pin_sccb_scl = CAM_PIN_SIOC;
   config.pin_pwdn = CAM_PIN_PWDN;
   config.pin_reset = CAM_PIN_RESET;
-  config.xclk_freq_hz = 10000000;
+  config.xclk_freq_hz = 20000000;
   config.frame_size = FRAMESIZE_SVGA;
   config.pixel_format = PIXFORMAT_JPEG;
   config.grab_mode = CAMERA_GRAB_LATEST;
   config.fb_location = CAMERA_FB_IN_PSRAM;
   config.jpeg_quality = 12;
-  config.fb_count = 1;
+  config.fb_count = 2;
 
   esp_err_t err = esp_camera_init(&config);
   if (err != ESP_OK) {
     Serial.printf("[CAM] init failed: 0x%x\n", err);
     return false;
   }
+  // esp_camera_init() may disturb GPIO48 via LEDC/RMT — turn LED off again
+  neopixelWrite(48, 0, 0, 0);
+
+  sensor_t* s = esp_camera_sensor_get();
+  s->set_special_effect(s, 0);
+  s->set_whitebal(s, 1);
+  s->set_awb_gain(s, 1);
+  s->set_wb_mode(s, 1); // 1=sunny (fixed preset — more reliable than auto on OV5640 cold start)
+  s->set_exposure_ctrl(s, 1);
+  s->set_gain_ctrl(s, 1);
+  s->set_brightness(s, 0);
+  s->set_saturation(s, 0);
+
+  // warm-up: discard frames so AWB/AEC can settle
+  // Keep calling neopixelWrite to ensure LED stays off while AWB calibrates
+  delay(3000);
+  neopixelWrite(48, 0, 0, 0);
+  for (int i = 0; i < 20; i++) {
+    camera_fb_t* warmup = esp_camera_fb_get();
+    if (warmup) esp_camera_fb_return(warmup);
+    delay(150);
+    if (i % 5 == 0) neopixelWrite(48, 0, 0, 0);
+  }
+
   Serial.println("[CAM] ready");
   return true;
 }
@@ -567,7 +591,19 @@ void handleBottleInsert() {
     bool captured = false;
     bool uploaded = false;
 
+    // ดับ WS2812 — เรียกซ้ำหลายครั้งเพื่อให้แน่ใจ
+    for (int i = 0; i < 5; i++) {
+      neopixelWrite(48, 0, 0, 0);
+      delay(20);
+    }
+    delay(200);
     if (initCamera()) {
+      // warmup ในฉากจริง ให้ AWB re-calibrate กับแสงจริง
+      for (int i = 0; i < 10; i++) {
+        camera_fb_t* w = esp_camera_fb_get();
+        if (w) esp_camera_fb_return(w);
+        delay(100);
+      }
       camera_fb_t* fb = esp_camera_fb_get();
       if (!fb) {
         Serial.println("[CAM] capture failed");
@@ -578,6 +614,7 @@ void handleBottleInsert() {
         esp_camera_fb_return(fb);
       }
       esp_camera_deinit();
+      neopixelWrite(48, 0, 0, 0);
       Serial.println("[CAM] deinit");
     }
 
@@ -638,13 +675,33 @@ void setupPins() {
 
 }  // namespace
 
+void testCamera() {
+  if (!CAMERA_ENABLED) return;
+  Serial.println("[CAM] test capture...");
+  if (!initCamera()) {
+    Serial.println("[CAM] init failed");
+    return;
+  }
+  camera_fb_t* fb = esp_camera_fb_get();
+  if (!fb) {
+    Serial.println("[CAM] capture failed");
+  } else {
+    Serial.printf("[CAM] OK — %u bytes (%dx%d)\n", fb->len, fb->width, fb->height);
+    esp_camera_fb_return(fb);
+  }
+  esp_camera_deinit();
+  neopixelWrite(48, 0, 0, 0);
+}
+
 void setup() {
   Serial.begin(115200);
   delay(300);
   Serial.println("Gloop ESP32 edge starting...");
 
+  neopixelWrite(48, 0, 0, 0);
   secureClient.setInsecure();
   setupPins();
+  testCamera();
   ensureWiFi();
 }
 
@@ -703,8 +760,12 @@ void loop() {
     return;
   }
 
-  if (machineState.status == "READY" && readBottleEdge()) {
-    Serial.println("[RVM] bottle edge detected");
+  Serial.printf("[DBG] status=%s user=%s active=%d\n",
+    machineState.status.c_str(),
+    machineState.currentUser.c_str(),
+    isSessionActive(machineState));
+  if (machineState.status == "READY") {
+    Serial.println("[RVM] test: triggering capture");
     handleBottleInsert();
   }
 

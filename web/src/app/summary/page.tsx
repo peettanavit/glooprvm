@@ -78,8 +78,10 @@ export default function SummaryPage() {
               });
           },
           (error) => {
-            console.error("Machine listener error:", error);
-            router.replace("/login");
+            if (auth.currentUser) {
+              console.error("Machine listener error:", error);
+              router.replace("/login");
+            }
           },
         );
       } catch (error) {

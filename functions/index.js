@@ -59,7 +59,8 @@ exports.uploadBottleImage = onRequest(
       // ── 1. Save image to Firebase Storage ─────────────────────────────────
       const bucket = getStorage().bucket();
       const timestamp = Date.now();
-      const storagePath = `captures/${machineId}/${sessionId}/${timestamp}.jpg`;
+      const humanDate = new Date(timestamp).toISOString().replace(/[:.]/g, "-").replace("T", "_").slice(0, 19);
+      const storagePath = `captures/${machineId}/${sessionId}/${humanDate}.jpg`;
       const file = bucket.file(storagePath);
 
       await file.save(imageBuffer, {
