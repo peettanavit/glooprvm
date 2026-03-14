@@ -4,14 +4,14 @@ import Providers from "./providers";
 
 export const metadata: Metadata = {
   title: "Gloop RVM",
-  description: "Smart reverse vending machine for glass recycling",
+  description: "เครื่องรับคืนขวดอัจฉริยะ",
 };
 
 export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en">
+    <html lang="th">
       <body>
         <Providers>{children}</Providers>
       </body>

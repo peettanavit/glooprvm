@@ -48,7 +48,7 @@ export default function DashboardPage() {
           );
         } catch (err) {
           console.error("Failed to initialize machine session:", err);
-          const message = err instanceof Error ? err.message : "Failed to start machine session";
+          const message = err instanceof Error ? err.message : "ไม่สามารถเริ่มเซสชันได้";
           setSessionError(message);
         }
         return;
@@ -80,9 +80,16 @@ export default function DashboardPage() {
   };
 
   return (
-    <main>
-      <section style={{ width: "100%", maxWidth: 560, display: "grid", gap: 12 }}>
+    <main className="min-h-screen flex items-center justify-center px-4 py-10">
+      <div className="w-full max-w-md flex flex-col gap-4">
+        {/* Header */}
+        <div className="text-center mb-2">
+          <h1 className="text-2xl font-bold text-gray-800">แดชบอร์ด</h1>
+          <p className="text-gray-400 text-sm">ใส่ขวดเพื่อเริ่มสะสมคะแนน</p>
+        </div>
+
         {!authReady && <MachineWaitingAnimation />}
+
         <MachineStatusCard status={machine.status} score={machine.session_score} />
 
         {(machine.status === "READY" || machine.status === "PROCESSING") && (
@@ -90,30 +97,37 @@ export default function DashboardPage() {
         )}
 
         {machine.status === "REJECTED" && (
-          <Alert color="warning" title="Bottle not accepted, please insert the next one." />
+          <Alert color="warning" title="ขวดไม่ผ่านการตรวจสอบ กรุณาใส่ขวดใบถัดไป" />
         )}
 
         {sessionError && (
           <Alert color="danger" title={sessionError} />
         )}
 
-        <p style={{ margin: 0, fontSize: 14, color: "#4b5563" }}>
-          Session starts automatically after login and keeps receiving bottles until you end it.
+        <p className="text-center text-xs text-gray-400">
+          เซสชันเริ่มต้นอัตโนมัติหลังเข้าสู่ระบบ และรับขวดจนกว่าจะกดสิ้นสุด
         </p>
 
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <Button as={Link} href="/profile" variant="flat">
-            My Points
+        {/* Navigation */}
+        <div className="grid grid-cols-2 gap-3">
+          <Button as={Link} href="/profile" variant="flat" color="primary" className="font-medium">
+            คะแนนของฉัน
           </Button>
-          <Button as={Link} href="/rewards" variant="flat">
-            Rewards
+          <Button as={Link} href="/rewards" variant="flat" color="primary" className="font-medium">
+            ของรางวัล
           </Button>
         </div>
 
-        <Button color="danger" variant="flat" onPress={endSessionNow} isLoading={ending}>
-          End Session
+        <Button
+          color="danger"
+          variant="flat"
+          onPress={endSessionNow}
+          isLoading={ending}
+          className="font-medium"
+        >
+          สิ้นสุดเซสชัน
         </Button>
-      </section>
+      </div>
     </main>
   );
 }

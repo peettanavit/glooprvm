@@ -53,5 +53,9 @@ service cloud.firestore {
     match /users/{userId}/sessions/{sessionId} {
       allow read, write: if isSignedIn() && request.auth.uid == userId;
     }
+
+    match /users/{userId}/redemptions/{redemptionId} {
+      allow read, write: if isSignedIn() && request.auth.uid == userId;
+    }
   }
 }

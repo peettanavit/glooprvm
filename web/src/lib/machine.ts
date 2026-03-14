@@ -40,6 +40,7 @@ export async function assignMachineToUser(uid: string): Promise<void> {
         current_user: uid,
         session_score: 0,
         session_id: sessionId,
+        updatedAt: serverTimestamp(),
       },
       { merge: true },
     );
@@ -52,6 +53,7 @@ export async function resetMachine(): Promise<void> {
     current_user: "",
     session_score: 0,
     session_id: "",
+    updatedAt: serverTimestamp(),
   });
 }
 

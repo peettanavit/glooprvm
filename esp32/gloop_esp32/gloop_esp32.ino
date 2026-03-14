@@ -2,16 +2,17 @@
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
+#include "esp_camera.h"
 
 #include "../config.h"
 
 namespace {
 
 const unsigned long WIFI_RETRY_MS = 4000;
-const unsigned long FIRESTORE_POLL_MS = 400;
+const unsigned long FIRESTORE_POLL_MS = 200;
 const unsigned long REJECT_HOLD_MS = 1200;
 const unsigned long TOKEN_REFRESH_MARGIN_MS = 60000;
-const unsigned long SENSOR_DEBOUNCE_MS = 80;
+const unsigned long SENSOR_DEBOUNCE_MS = 20;
 const unsigned long SOLENOID_PULSE_MS = 600;
 
 const int SCORE_SMALL = 1;
@@ -25,6 +26,11 @@ unsigned long tokenExpiresAt = 0;
 unsigned long rejectUntil = 0;
 unsigned long lastSensorReadAt = 0;
 bool lastSensorState = false;
+unsigned long lastReadyButtonReadAt = 0;
+bool lastReadyButtonState = false;
+volatile bool readyButtonInterrupt = false;
+volatile bool slotSmallInterrupt = false;
+bool wifiBeginInProgress = false;
 
 String idToken;
 String refreshToken;
@@ -33,10 +39,14 @@ struct MachineState {
   String status = "IDLE";
   String currentUser = "";
   int sessionScore = 0;
+  String sessionId = "";
   bool exists = false;
 };
 
 MachineState machineState;
+bool cameraReady = false;
+unsigned long lastCameraInitAttemptAt = 0;
+const unsigned long CAMERA_RETRY_MS = 3000;
 
 bool isActiveStatus(const String& status) {
   return status == "READY" || status == "PROCESSING" || status == "REJECTED";
@@ -44,6 +54,92 @@ bool isActiveStatus(const String& status) {
 
 bool isSessionActive(const MachineState& state) {
   return isActiveStatus(state.status) && state.currentUser.length() > 0;
+}
+
+bool initCamera() {
+  if (!CAMERA_ENABLED) {
+    return false;
+  }
+
+  camera_config_t config;
+  config.ledc_channel = LEDC_CHANNEL_0;
+  config.ledc_timer = LEDC_TIMER_0;
+  config.pin_d0 = CAM_PIN_Y2;
+  config.pin_d1 = CAM_PIN_Y3;
+  config.pin_d2 = CAM_PIN_Y4;
+  config.pin_d3 = CAM_PIN_Y5;
+  config.pin_d4 = CAM_PIN_Y6;
+  config.pin_d5 = CAM_PIN_Y7;
+  config.pin_d6 = CAM_PIN_Y8;
+  config.pin_d7 = CAM_PIN_Y9;
+  config.pin_xclk = CAM_PIN_XCLK;
+  config.pin_pclk = CAM_PIN_PCLK;
+  config.pin_vsync = CAM_PIN_VSYNC;
+  config.pin_href = CAM_PIN_HREF;
+  config.pin_sccb_sda = CAM_PIN_SIOD;
+  config.pin_sccb_scl = CAM_PIN_SIOC;
+  config.pin_pwdn = CAM_PIN_PWDN;
+  config.pin_reset = CAM_PIN_RESET;
+  config.xclk_freq_hz = 10000000;
+  config.frame_size = FRAMESIZE_SVGA;
+  config.pixel_format = PIXFORMAT_JPEG;
+  config.grab_mode = CAMERA_GRAB_LATEST;
+  config.fb_location = CAMERA_FB_IN_PSRAM;
+  config.jpeg_quality = 12;
+  config.fb_count = 1;
+
+  esp_err_t err = esp_camera_init(&config);
+  if (err != ESP_OK) {
+    Serial.printf("[CAM] init failed: 0x%x\n", err);
+    return false;
+  }
+  Serial.println("[CAM] ready");
+  return true;
+}
+
+void ensureCamera() {
+  if (cameraReady || !CAMERA_ENABLED) {
+    return;
+  }
+  const unsigned long now = millis();
+  if (now - lastCameraInitAttemptAt < CAMERA_RETRY_MS) {
+    return;
+  }
+  lastCameraInitAttemptAt = now;
+  Serial.println("[CAM] attempting init...");
+  cameraReady = initCamera();
+}
+
+bool uploadFrameToCloudFunction(camera_fb_t* fb, const String& userId, const String& sessionId) {
+  if (!CAMERA_ENABLED || fb == nullptr) {
+    return false;
+  }
+  if (WiFi.status() != WL_CONNECTED) {
+    return false;
+  }
+
+  HTTPClient http;
+  http.begin(secureClient, CF_UPLOAD_URL);
+  http.addHeader("Content-Type", "image/jpeg");
+  http.addHeader("X-Machine-Id", MACHINE_ID);
+  if (userId.length()) {
+    http.addHeader("X-User-Id", userId);
+  }
+  if (sessionId.length()) {
+    http.addHeader("X-Session-Id", sessionId);
+  }
+
+  int code = http.POST(fb->buf, fb->len);
+  String body = http.getString();
+  http.end();
+
+  if (code < 200 || code >= 300) {
+    Serial.printf("[CAM] upload failed (%d): %s\n", code, body.c_str());
+    return false;
+  }
+
+  Serial.println("[CAM] upload ok");
+  return true;
 }
 
 String machineDocUrl() {
@@ -59,7 +155,7 @@ bool parseIntField(JsonVariantConst field, int& output) {
   }
   JsonVariantConst integerValue = field["integerValue"];
   if (!integerValue.is<const char*>()) {
-    return false;
+    return false; 
   }
   output = atoi(integerValue.as<const char*>());
   return true;
@@ -67,16 +163,20 @@ bool parseIntField(JsonVariantConst field, int& output) {
 
 bool ensureWiFi() {
   if (WiFi.status() == WL_CONNECTED) {
+    wifiBeginInProgress = false;
     return true;
   }
 
   const unsigned long now = millis();
-  if (now - lastWiFiRetryAt < WIFI_RETRY_MS) {
+  if (wifiBeginInProgress && now - lastWiFiRetryAt < WIFI_RETRY_MS) {
     return false;
   }
 
   lastWiFiRetryAt = now;
+  wifiBeginInProgress = true;
   Serial.println("[WiFi] connecting...");
+  WiFi.disconnect(true);
+  delay(50);
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   return false;
@@ -238,6 +338,9 @@ bool firestoreGet(MachineState& outState) {
   if (fields["current_user"]["stringValue"].is<const char*>()) {
     parsed.currentUser = fields["current_user"]["stringValue"].as<const char*>();
   }
+  if (fields["session_id"]["stringValue"].is<const char*>()) {
+    parsed.sessionId = fields["session_id"]["stringValue"].as<const char*>();
+  }
 
   int score = 0;
   if (parseIntField(fields["session_score"], score)) {
@@ -250,48 +353,132 @@ bool firestoreGet(MachineState& outState) {
 
 bool firestorePatchStatus(const String& status) {
   HTTPClient http;
-  const String url = machineDocUrl() + "?updateMask.fieldPaths=status";
+  const String url = String("https://firestore.googleapis.com/v1/projects/") +
+                     FIREBASE_PROJECT_ID +
+                     "/databases/(default)/documents:commit";
+  const String docPath = String("projects/") + FIREBASE_PROJECT_ID +
+                         "/databases/(default)/documents/machines/" + MACHINE_ID;
 
-  DynamicJsonDocument payload(256);
-  payload["fields"]["status"]["stringValue"] = status;
+  DynamicJsonDocument payload(768);
+  JsonObject update = payload["writes"][0]["update"].to<JsonObject>();
+  update["name"] = docPath;
+  update["fields"]["status"]["stringValue"] = status;
+  payload["writes"][0]["updateMask"]["fieldPaths"][0] = "status";
+  JsonObject transform = payload["writes"][1]["transform"].to<JsonObject>();
+  transform["document"] = docPath;
+  JsonObject ft = transform["fieldTransforms"][0].to<JsonObject>();
+  ft["fieldPath"] = "updatedAt";
+  ft["setToServerValue"] = "REQUEST_TIME";
+
   String payloadText;
   serializeJson(payload, payloadText);
 
   http.begin(secureClient, url);
   http.addHeader("Authorization", String("Bearer ") + idToken);
   http.addHeader("Content-Type", "application/json");
-  int code = http.PATCH(payloadText);
+  int code = http.POST(payloadText);
   String body = http.getString();
   http.end();
 
   if (code < 200 || code >= 300) {
-    Serial.printf("[Firestore] PATCH status failed (%d): %s\n", code, body.c_str());
+    Serial.printf("[Firestore] patch status failed (%d): %s\n", code, body.c_str());
     return false;
   }
   return true;
 }
 
-bool firestorePatchStatusAndScore(const String& status, int score) {
-  HTTPClient http;
-  const String url = machineDocUrl() +
-                     "?updateMask.fieldPaths=status"
-                     "&updateMask.fieldPaths=session_score";
+bool firestoreSlotEvent(const String& size) {
+  int score = 0;
+  if (size == "SMALL") score = SCORE_SMALL;
+  else if (size == "MEDIUM") score = SCORE_MEDIUM;
+  else if (size == "LARGE") score = SCORE_LARGE;
 
-  DynamicJsonDocument payload(384);
-  payload["fields"]["status"]["stringValue"] = status;
-  payload["fields"]["session_score"]["integerValue"] = String(score);
+  HTTPClient http;
+  const String url = String("https://firestore.googleapis.com/v1/projects/") +
+                     FIREBASE_PROJECT_ID +
+                     "/databases/(default)/documents:commit";
+
+  const String docPath = String("projects/") + FIREBASE_PROJECT_ID +
+                         "/databases/(default)/documents/machines/" + MACHINE_ID;
+
+  DynamicJsonDocument payload(1536);
+
+  // Write 1: increment slotCounts.<size> + session_score + set timestamps
+  JsonObject transform = payload["writes"][0]["transform"].to<JsonObject>();
+  transform["document"] = docPath;
+  JsonObject ft0 = transform["fieldTransforms"][0].to<JsonObject>();
+  ft0["fieldPath"] = String("slotCounts.") + size;
+  ft0["increment"]["integerValue"] = "1";
+  JsonObject ft1 = transform["fieldTransforms"][1].to<JsonObject>();
+  ft1["fieldPath"] = "session_score";
+  ft1["increment"]["integerValue"] = String(score);
+  JsonObject ft2 = transform["fieldTransforms"][2].to<JsonObject>();
+  ft2["fieldPath"] = "updatedAt";
+  ft2["setToServerValue"] = "REQUEST_TIME";
+  JsonObject ft3 = transform["fieldTransforms"][3].to<JsonObject>();
+  ft3["fieldPath"] = "lastSlotEvent.timestamp";
+  ft3["setToServerValue"] = "REQUEST_TIME";
+
+  // Write 2: update lastSlotEvent fields + status
+  JsonObject update = payload["writes"][1]["update"].to<JsonObject>();
+  update["name"] = docPath;
+  update["fields"]["lastSlotEvent"]["mapValue"]["fields"]["size"]["stringValue"] = size;
+  update["fields"]["lastSlotEvent"]["mapValue"]["fields"]["machineId"]["stringValue"] = MACHINE_ID;
+  update["fields"]["status"]["stringValue"] = "READY";
+  payload["writes"][1]["updateMask"]["fieldPaths"][0] = "lastSlotEvent";
+  payload["writes"][1]["updateMask"]["fieldPaths"][1] = "status";
+
   String payloadText;
   serializeJson(payload, payloadText);
 
   http.begin(secureClient, url);
   http.addHeader("Authorization", String("Bearer ") + idToken);
   http.addHeader("Content-Type", "application/json");
-  int code = http.PATCH(payloadText);
+  int code = http.POST(payloadText);
   String body = http.getString();
   http.end();
 
   if (code < 200 || code >= 300) {
-    Serial.printf("[Firestore] PATCH status+score failed (%d): %s\n", code, body.c_str());
+    Serial.printf("[Firestore] slot event failed (%d): %s\n", code, body.c_str());
+    return false;
+  }
+  Serial.printf("[Slot] %s +1 score+%d, status->READY\n", size.c_str(), score);
+  return true;
+}
+
+bool firestorePatchStatusAndScore(const String& status, int score) {
+  HTTPClient http;
+  const String url = String("https://firestore.googleapis.com/v1/projects/") +
+                     FIREBASE_PROJECT_ID +
+                     "/databases/(default)/documents:commit";
+  const String docPath = String("projects/") + FIREBASE_PROJECT_ID +
+                         "/databases/(default)/documents/machines/" + MACHINE_ID;
+
+  DynamicJsonDocument payload(768);
+  JsonObject update = payload["writes"][0]["update"].to<JsonObject>();
+  update["name"] = docPath;
+  update["fields"]["status"]["stringValue"] = status;
+  update["fields"]["session_score"]["integerValue"] = String(score);
+  payload["writes"][0]["updateMask"]["fieldPaths"][0] = "status";
+  payload["writes"][0]["updateMask"]["fieldPaths"][1] = "session_score";
+  JsonObject transform = payload["writes"][1]["transform"].to<JsonObject>();
+  transform["document"] = docPath;
+  JsonObject ft = transform["fieldTransforms"][0].to<JsonObject>();
+  ft["fieldPath"] = "updatedAt";
+  ft["setToServerValue"] = "REQUEST_TIME";
+
+  String payloadText;
+  serializeJson(payload, payloadText);
+
+  http.begin(secureClient, url);
+  http.addHeader("Authorization", String("Bearer ") + idToken);
+  http.addHeader("Content-Type", "application/json");
+  int code = http.POST(payloadText);
+  String body = http.getString();
+  http.end();
+
+  if (code < 200 || code >= 300) {
+    Serial.printf("[Firestore] patch status+score failed (%d): %s\n", code, body.c_str());
     return false;
   }
   return true;
@@ -318,6 +505,42 @@ bool readBottleEdge() {
   return edge;
 }
 
+bool readSensorEdgeRaw() {
+  const unsigned long now = millis();
+  if (now - lastSensorReadAt < SENSOR_DEBOUNCE_MS) {
+    return false;
+  }
+  lastSensorReadAt = now;
+
+  const int raw = digitalRead(SENSOR_PIN);
+  const bool active = SENSOR_ACTIVE_HIGH ? (raw == HIGH) : (raw == LOW);
+  const bool edge = active && !lastSensorState;
+  lastSensorState = active;
+  return edge;
+}
+
+bool readReadyButtonEdge() {
+  const unsigned long now = millis();
+  if (now - lastReadyButtonReadAt < SENSOR_DEBOUNCE_MS) {
+    return false;
+  }
+  lastReadyButtonReadAt = now;
+
+  const int raw = digitalRead(READY_BUTTON_PIN);
+  const bool active = (raw == LOW); // INPUT_PULLUP: pressed = LOW
+  const bool edge = active && !lastReadyButtonState;
+  lastReadyButtonState = active;
+  return edge;
+}
+
+void IRAM_ATTR onReadyButtonInterrupt() {
+  readyButtonInterrupt = true;
+}
+
+void IRAM_ATTR onSlotSmallInterrupt() {
+  slotSmallInterrupt = true;
+}
+
 int classifyBottleScore() {
   const int r = esp_random() % 100;
   if (r < 40) {
@@ -330,8 +553,7 @@ int classifyBottleScore() {
 }
 
 bool isBottleValid() {
-  const int r = esp_random() % 100;
-  return r < 78;
+  return true;
 }
 
 void pulseSolenoid() {
@@ -341,29 +563,77 @@ void pulseSolenoid() {
 }
 
 void handleBottleInsert() {
-  if (!isBottleValid()) {
-    Serial.println("[RVM] bottle rejected");
-    if (firestorePatchStatus("REJECTED")) {
-      machineState.status = "REJECTED";
-      rejectUntil = millis() + REJECT_HOLD_MS;
+  if (CAMERA_ENABLED) {
+    bool captured = false;
+    bool uploaded = false;
+
+    if (initCamera()) {
+      camera_fb_t* fb = esp_camera_fb_get();
+      if (!fb) {
+        Serial.println("[CAM] capture failed");
+      } else {
+        captured = true;
+        Serial.printf("[CAM] captured %u bytes\n", fb->len);
+        uploaded = uploadFrameToCloudFunction(fb, machineState.currentUser, machineState.sessionId);
+        esp_camera_fb_return(fb);
+      }
+      esp_camera_deinit();
+      Serial.println("[CAM] deinit");
     }
-    return;
+
+    if (captured && uploaded) {
+      // Cloud Function handles status update (PROCESSING or REJECTED).
+      // Poll Firestore until CF writes a result (max 10 s).
+      Serial.println("[RVM] waiting for AI result...");
+      const unsigned long aiWaitStart = millis();
+      String aiStatus = "";
+      while (millis() - aiWaitStart < 10000UL) {
+        delay(400);
+        MachineState latest;
+        if (firestoreGet(latest)) {
+          if (latest.status == "PROCESSING" || latest.status == "REJECTED") {
+            aiStatus = latest.status;
+            machineState = latest;
+            break;
+          }
+        }
+      }
+
+      if (aiStatus == "PROCESSING") {
+        pulseSolenoid();
+        Serial.println("[RVM] AI accepted -> solenoid open, status PROCESSING");
+      } else if (aiStatus == "REJECTED") {
+        rejectUntil = millis() + REJECT_HOLD_MS;
+        Serial.println("[RVM] AI rejected bottle");
+      } else {
+        // Timeout: default to accept so user is not blocked
+        pulseSolenoid();
+        firestorePatchStatus("PROCESSING");
+        machineState.status = "PROCESSING";
+        Serial.println("[RVM] AI timeout, defaulting to accept");
+      }
+      return;
+    }
+    // Camera capture or upload failed — fall through to local logic
+    Serial.println("[RVM] camera/upload failed, using local logic");
   }
 
-  const int gained = classifyBottleScore();
-  const int nextScore = machineState.sessionScore + gained;
+  // No camera or upload failed: accept unconditionally (no AI check)
   pulseSolenoid();
-  if (firestorePatchStatusAndScore("PROCESSING", nextScore)) {
+  if (firestorePatchStatus("PROCESSING")) {
     machineState.status = "PROCESSING";
-    machineState.sessionScore = nextScore;
-    Serial.printf("[RVM] bottle accepted (+%d) total=%d\n", gained, nextScore);
+    Serial.println("[RVM] bottle accepted (no AI), status->PROCESSING");
   }
 }
 
 void setupPins() {
   pinMode(SOLENOID_PIN, OUTPUT);
   digitalWrite(SOLENOID_PIN, LOW);
-  pinMode(SENSOR_PIN, INPUT);
+  pinMode(SENSOR_PIN, INPUT_PULLUP);
+  pinMode(READY_BUTTON_PIN, INPUT_PULLUP);
+  pinMode(SLOT_PIN_SMALL, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(READY_BUTTON_PIN), onReadyButtonInterrupt, FALLING);
+  attachInterrupt(digitalPinToInterrupt(SLOT_PIN_SMALL), onSlotSmallInterrupt, FALLING);
 }
 
 }  // namespace
@@ -394,12 +664,15 @@ void loop() {
     lastFirestorePollAt = now;
     MachineState latest;
     if (firestoreGet(latest)) {
+      if (latest.status != machineState.status) {
+        Serial.printf("[State] %s -> %s\n", machineState.status.c_str(), latest.status.c_str());
+      }
       machineState = latest;
     }
   }
 
   if (!machineState.exists) {
-    delay(120);
+    delay(30);
     return;
   }
 
@@ -410,14 +683,43 @@ void loop() {
     }
   }
 
-  if (!isSessionActive(machineState)) {
+  if (readyButtonInterrupt) {
+    readyButtonInterrupt = false;
+    if (machineState.status == "PROCESSING" && firestorePatchStatus("READY")) {
+      machineState.status = "READY";
+    }
+  }
+
+  if (!isSessionActive(machineState) && readSensorEdgeRaw()) {
+    if (firestorePatchStatus("IDLE")) {
+      machineState.status = "IDLE";
+    }
     delay(80);
     return;
   }
 
-  if (readBottleEdge()) {
+  if (!isSessionActive(machineState)) {
+    delay(20);
+    return;
+  }
+
+  if (machineState.status == "READY" && readBottleEdge()) {
+    Serial.println("[RVM] bottle edge detected");
     handleBottleInsert();
   }
 
-  delay(20);
+  if (slotSmallInterrupt) {
+    slotSmallInterrupt = false;
+    Serial.printf("[Slot] SMALL triggered (status=%s)\n", machineState.status.c_str());
+    if (machineState.status == "PROCESSING") {
+      if (firestoreSlotEvent("SMALL")) {
+        machineState.status = "READY";
+        machineState.sessionScore += SCORE_SMALL;
+      }
+    } else {
+      Serial.println("[Slot] SMALL ignored: not PROCESSING");
+    }
+  }
+
+  delay(5);
 }

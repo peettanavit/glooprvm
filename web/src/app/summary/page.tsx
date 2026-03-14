@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Button, Card, CardBody, CardHeader } from "@heroui/react";
+import { Button, Card, CardBody } from "@heroui/react";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import { auth } from "@/lib/firebase";
 import { persistUserSessionScore, resetMachine, subscribeToMachine } from "@/lib/machine";
@@ -69,7 +70,7 @@ export default function SummaryPage() {
                 setSaved(true);
               })
               .catch((error: unknown) => {
-                const message = error instanceof Error ? error.message : "Failed to save score";
+                const message = error instanceof Error ? error.message : "บันทึกคะแนนไม่สำเร็จ";
                 setSaveError(message);
               })
               .finally(() => {
@@ -102,31 +103,51 @@ export default function SummaryPage() {
   };
 
   return (
-    <main>
-      <Card style={{ width: "100%", maxWidth: 520 }}>
-        <CardHeader>
-          <h1 style={{ margin: 0 }}>Session Summary</h1>
-        </CardHeader>
-        <CardBody style={{ display: "grid", gap: 12 }}>
-          <p style={{ margin: 0, fontSize: 18 }}>
-            Total Score: <strong>{machine.session_score}</strong>
-          </p>
-          {saving && <p style={{ margin: 0, color: "#4b5563" }}>Saving score...</p>}
-          {saved && !saveError && <p style={{ margin: 0, color: "#047857" }}>Score saved.</p>}
-          {saveError && <p style={{ margin: 0, color: "#dc2626" }}>{saveError}</p>}
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <Button as={Link} href="/profile" color="primary" variant="flat">
-              My Points
-            </Button>
-            <Button as={Link} href="/rewards" variant="flat">
-              Rewards
-            </Button>
-            <Button color="primary" onPress={onEndSession}>
-              Confirm & Finish
-            </Button>
+    <main className="min-h-screen flex items-center justify-center px-4 py-10">
+      <div className="w-full max-w-md flex flex-col gap-4">
+        {/* Header */}
+        <div className="text-center mb-2">
+          <div className="flex justify-center mb-2">
+            <div className="bg-white rounded-2xl shadow-sm p-1.5 inline-flex">
+              <Image src="/logo.jpg" alt="Gloop" width={72} height={72} className="rounded-xl" />
+            </div>
           </div>
-        </CardBody>
-      </Card>
+          <h1 className="text-2xl font-bold text-gray-800">สรุปผลการรีไซเคิล</h1>
+          <p className="text-gray-400 text-sm">ขอบคุณที่ร่วมรักษาสิ่งแวดล้อม</p>
+        </div>
+
+        {/* Score card */}
+        <Card className="shadow-md border border-green-100">
+          <CardBody className="py-8 px-6 text-center">
+            <p className="text-gray-500 text-sm mb-2">คะแนนที่ได้รับเซสชันนี้</p>
+            <p className="text-6xl font-bold text-green-600 mb-1">{machine.session_score}</p>
+            <p className="text-gray-400 text-sm">คะแนน</p>
+
+            <div className="mt-4 pt-4 border-t border-gray-100">
+              {saving && <p className="text-gray-400 text-sm">กำลังบันทึกคะแนน...</p>}
+              {saved && !saveError && (
+                <p className="text-green-600 text-sm font-medium">บันทึกคะแนนเรียบร้อยแล้ว</p>
+              )}
+              {saveError && (
+                <p className="text-red-500 text-sm">{saveError}</p>
+              )}
+            </div>
+          </CardBody>
+        </Card>
+
+        <div className="grid grid-cols-2 gap-3">
+          <Button as={Link} href="/profile" color="primary" variant="flat" className="font-medium">
+            คะแนนสะสม
+          </Button>
+          <Button as={Link} href="/rewards" variant="flat" className="font-medium">
+            ของรางวัล
+          </Button>
+        </div>
+
+        <Button color="primary" onPress={onEndSession} size="lg" className="font-semibold">
+          ยืนยันและออกจากระบบ
+        </Button>
+      </div>
     </main>
   );
 }

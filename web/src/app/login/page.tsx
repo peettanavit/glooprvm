@@ -1,8 +1,9 @@
 "use client";
 
 import { FormEvent, useState } from "react";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { Button, Card, CardBody, CardHeader, Input } from "@heroui/react";
+import { Button, Card, CardBody, Input } from "@heroui/react";
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
@@ -34,8 +35,8 @@ export default function LoginPage() {
         err instanceof Error
           ? err.message
           : mode === "login"
-            ? "Login failed"
-            : "Register failed";
+            ? "เข้าสู่ระบบล้มเหลว"
+            : "สมัครสมาชิกล้มเหลว";
       setError(message);
     } finally {
       setLoading(false);
@@ -43,61 +44,92 @@ export default function LoginPage() {
   };
 
   return (
-    <main>
-      <Card style={{ width: "100%", maxWidth: 480 }}>
-        <CardHeader>
-          <h1 style={{ margin: 0 }}>
-            {mode === "login" ? "Log In to Gloop" : "Register for Gloop"}
-          </h1>
-        </CardHeader>
-        <CardBody>
-          <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-            <Button
-              size="sm"
-              color={mode === "login" ? "primary" : "default"}
-              variant={mode === "login" ? "solid" : "flat"}
-              onPress={() => setMode("login")}
-            >
-              Log In
-            </Button>
-            <Button
-              size="sm"
-              color={mode === "register" ? "primary" : "default"}
-              variant={mode === "register" ? "solid" : "flat"}
-              onPress={() => setMode("register")}
-            >
-              Register
-            </Button>
+    <main className="min-h-screen flex items-center justify-center px-4 py-10">
+      <div className="w-full max-w-md">
+        {/* Logo / Header */}
+        <div className="text-center mb-8">
+          <div className="flex justify-center mb-2">
+            <div className="bg-white rounded-2xl shadow-sm p-2 inline-flex">
+              <Image src="/logo.jpg" alt="Gloop" width={110} height={110} className="rounded-xl" />
+            </div>
           </div>
-          <form onSubmit={onSubmit} style={{ display: "grid", gap: 12 }}>
-            <Input
-              type="email"
-              label="Email"
-              value={email}
-              onValueChange={setEmail}
-              isRequired
-            />
-            <Input
-              type="password"
-              label="Password"
-              value={password}
-              onValueChange={setPassword}
-              isRequired
-            />
-            {error ? (
-              <p style={{ color: "#dc2626", margin: 0 }}>{error}</p>
-            ) : null}
-            <p style={{ margin: 0, fontSize: 14, color: "#4b5563" }}>
-              {mode === "login"
-                ? "After login, your recycling session will start automatically."
-                : "After registration, your account will be signed in and session starts automatically."}
-            </p>
-            <Button color="primary" type="submit" isLoading={loading}>
-              {mode === "login" ? "Log In" : "Create Account"}
-            </Button>
-          </form>
-        </CardBody>
-      </Card>
+          <p className="text-gray-500 text-sm mt-1">เครื่องรับคืนขวดอัจฉริยะ</p>
+        </div>
+
+        <Card className="shadow-lg border border-green-100">
+          <CardBody className="p-6">
+            {/* Tab switcher */}
+            <div className="flex gap-2 mb-6 p-1 bg-gray-100 rounded-xl">
+              <button
+                type="button"
+                onClick={() => setMode("login")}
+                className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all ${
+                  mode === "login"
+                    ? "bg-white text-green-700 shadow-sm"
+                    : "text-gray-500 hover:text-gray-700"
+                }`}
+              >
+                เข้าสู่ระบบ
+              </button>
+              <button
+                type="button"
+                onClick={() => setMode("register")}
+                className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all ${
+                  mode === "register"
+                    ? "bg-white text-green-700 shadow-sm"
+                    : "text-gray-500 hover:text-gray-700"
+                }`}
+              >
+                สมัครสมาชิก
+              </button>
+            </div>
+
+            <form onSubmit={onSubmit} className="flex flex-col gap-4">
+              <Input
+                type="email"
+                label="อีเมล"
+                placeholder="your@email.com"
+                value={email}
+                onValueChange={setEmail}
+                isRequired
+                variant="bordered"
+                classNames={{ inputWrapper: "border-green-200 hover:border-green-400 focus-within:!border-green-500" }}
+              />
+              <Input
+                type="password"
+                label="รหัสผ่าน"
+                value={password}
+                onValueChange={setPassword}
+                isRequired
+                variant="bordered"
+                classNames={{ inputWrapper: "border-green-200 hover:border-green-400 focus-within:!border-green-500" }}
+              />
+
+              {error && (
+                <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3">
+                  <p className="text-red-600 text-sm">{error}</p>
+                </div>
+              )}
+
+              <p className="text-xs text-gray-400 text-center">
+                {mode === "login"
+                  ? "หลังเข้าสู่ระบบ เซสชันรับขวดจะเริ่มต้นอัตโนมัติ"
+                  : "หลังสมัครสมาชิก เซสชันรับขวดจะเริ่มต้นอัตโนมัติ"}
+              </p>
+
+              <Button
+                color="primary"
+                type="submit"
+                isLoading={loading}
+                className="w-full font-semibold"
+                size="lg"
+              >
+                {mode === "login" ? "เข้าสู่ระบบ" : "สร้างบัญชีใหม่"}
+              </Button>
+            </form>
+          </CardBody>
+        </Card>
+      </div>
     </main>
   );
 }
