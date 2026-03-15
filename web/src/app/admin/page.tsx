@@ -1,0 +1,212 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import {
+  Button,
+  Card,
+  CardBody,
+  CardHeader,
+  Chip,
+  type ChipProps,
+} from "@heroui/react";
+import { onAuthStateChanged } from "firebase/auth";
+import { auth } from "@/lib/firebase";
+import {
+  resetMachine,
+  subscribeToMachine,
+  subscribeToSortingLogs,
+  type SortingLog,
+} from "@/lib/machine";
+import { type MachineState, type MachineStatus } from "@/types/machine";
+
+const initialMachine: MachineState = {
+  status: "IDLE",
+  current_user: "",
+  session_score: 0,
+  session_id: "",
+};
+
+function statusChipColor(status: MachineStatus): ChipProps["color"] {
+  switch (status) {
+    case "IDLE":
+      return "default";
+    case "READY":
+      return "success";
+    case "PROCESSING":
+      return "primary";
+    case "REJECTED":
+      return "warning";
+    case "COMPLETED":
+      return "secondary";
+    default:
+      return "default";
+  }
+}
+
+export default function AdminPage() {
+  const router = useRouter();
+  const [machine, setMachine] = useState<MachineState>(initialMachine);
+  const [logs, setLogs] = useState<SortingLog[]>([]);
+  const [resetting, setResetting] = useState(false);
+  const [resetError, setResetError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    let unsubscribeMachine: (() => void) | null = null;
+    let unsubscribeLogs: (() => void) | null = null;
+
+    const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
+      if (unsubscribeMachine) { unsubscribeMachine(); unsubscribeMachine = null; }
+      if (unsubscribeLogs) { unsubscribeLogs(); unsubscribeLogs = null; }
+
+      if (!user) { router.replace("/login"); return; }
+
+      try {
+        await user.getIdToken();
+        if (cancelled) return;
+
+        unsubscribeMachine = subscribeToMachine(setMachine, (error) => {
+          console.error("Machine listener error:", error);
+        });
+
+        unsubscribeLogs = subscribeToSortingLogs(setLogs, (error) => {
+          console.error("Logs listener error:", error);
+        });
+      } catch {
+        if (!cancelled) router.replace("/login");
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      unsubscribeAuth();
+      if (unsubscribeMachine) unsubscribeMachine();
+      if (unsubscribeLogs) unsubscribeLogs();
+    };
+  }, [router]);
+
+  const handleResetMachine = async () => {
+    setResetting(true);
+    setResetError(null);
+    try {
+      await resetMachine();
+    } catch (err) {
+      if (err instanceof Error) {
+        setResetError(err.message);
+      } else {
+        setResetError("เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง");
+      }
+    } finally {
+      setResetting(false);
+    }
+  };
+
+  return (
+    <main className="min-h-screen flex items-center justify-center px-4 py-10">
+      <div className="w-full max-w-lg flex flex-col gap-4">
+
+        {/* Header */}
+        <div className="text-center mb-2">
+          <h1 className="text-2xl font-bold text-gray-800">Admin Dashboard</h1>
+          <p className="text-gray-400 text-sm">จัดการและติดตามสถานะเครื่อง Gloop</p>
+        </div>
+
+        {/* Machine Status */}
+        <Card className="shadow-sm border border-green-100">
+          <CardHeader className="pb-2 px-5 pt-4 flex justify-between items-center">
+            <h2 className="text-base font-semibold text-gray-700">สถานะเครื่อง</h2>
+            <Chip color={statusChipColor(machine.status)} variant="flat" size="sm">
+              {machine.status}
+            </Chip>
+          </CardHeader>
+          <CardBody className="pt-0 px-5 pb-4">
+            <div className="flex flex-col gap-2 text-sm">
+              <div className="flex justify-between py-2 border-b border-gray-100">
+                <span className="text-gray-500">ผู้ใช้ปัจจุบัน</span>
+                <span className="text-gray-800 font-medium truncate max-w-[220px]">
+                  {machine.current_user || "—"}
+                </span>
+              </div>
+              <div className="flex justify-between py-2 border-b border-gray-100">
+                <span className="text-gray-500">คะแนนในเซสชัน</span>
+                <span className="text-green-700 font-bold">{machine.session_score}</span>
+              </div>
+              <div className="flex justify-between py-2">
+                <span className="text-gray-500">Session ID</span>
+                <span className="text-gray-400 font-mono text-xs truncate max-w-[220px]">
+                  {machine.session_id || "—"}
+                </span>
+              </div>
+            </div>
+
+            {resetError && (
+              <div className="mt-3 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
+                <p className="text-red-600 text-sm">{resetError}</p>
+              </div>
+            )}
+
+            <Button
+              color="danger"
+              variant="flat"
+              className="mt-4 w-full font-medium"
+              isLoading={resetting}
+              onPress={handleResetMachine}
+            >
+              Reset Machine
+            </Button>
+          </CardBody>
+        </Card>
+
+        {/* Sorting Logs */}
+        <Card className="shadow-sm border border-green-100">
+          <CardHeader className="pb-2 px-5 pt-4 flex justify-between items-center">
+            <h2 className="text-base font-semibold text-gray-700">ประวัติการคัดแยก</h2>
+            <Chip color="default" variant="flat" size="sm">
+              {logs.length} รายการ
+            </Chip>
+          </CardHeader>
+          <CardBody className="pt-0 px-5 pb-4">
+            {logs.length === 0 ? (
+              <p className="text-gray-400 text-sm text-center py-4">ยังไม่มีข้อมูล</p>
+            ) : (
+              <div className="flex flex-col gap-0">
+                {logs.map((log) => (
+                  <div
+                    key={log.id}
+                    className="flex justify-between items-start py-3 border-b border-gray-100 last:border-0 gap-3"
+                  >
+                    <div className="flex flex-col gap-0.5 min-w-0">
+                      <p className="text-sm text-gray-700 font-medium">{log.bottle_type}</p>
+                      <p className="text-xs text-gray-400 truncate">{log.user_id}</p>
+                      {log.sorted_at && (
+                        <p className="text-xs text-gray-400">
+                          {log.sorted_at.toDate().toLocaleDateString("th-TH", {
+                            day: "numeric",
+                            month: "short",
+                            year: "numeric",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        </p>
+                      )}
+                    </div>
+                    <Chip color="default" variant="flat" size="sm" className="shrink-0 font-mono text-xs">
+                      {log.machine_id}
+                    </Chip>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardBody>
+        </Card>
+
+        {/* Back link */}
+        <Button as={Link} href="/dashboard" variant="flat" className="font-medium">
+          กลับหน้าแดชบอร์ด
+        </Button>
+      </div>
+    </main>
+  );
+}
