@@ -43,6 +43,7 @@ export default function RewardsPage() {
   const [redemptions, setRedemptions] = useState<UserRedemptionHistory[]>([]);
 
   useEffect(() => {
+    let cancelled = false;
     let unsubscribeProfile: (() => void) | null = null;
     let unsubscribeRedemptions: (() => void) | null = null;
 
@@ -59,6 +60,7 @@ export default function RewardsPage() {
 
       try {
         await user.getIdToken();
+        if (cancelled) return;
         unsubscribeProfile = subscribeToUserProfile(user.uid, setProfile, () => router.replace("/login"));
         unsubscribeRedemptions = subscribeToUserRedemptions(user.uid, setRedemptions);
       } catch (error) {
@@ -68,6 +70,7 @@ export default function RewardsPage() {
     });
 
     return () => {
+      cancelled = true;
       unsubscribeAuth();
       if (unsubscribeProfile) unsubscribeProfile();
       if (unsubscribeRedemptions) unsubscribeRedemptions();
@@ -89,7 +92,11 @@ export default function RewardsPage() {
       setRedeemCode(code);
       setRedeemName(confirmReward.name);
     } catch (err) {
-      setRedeemError(err instanceof Error ? err.message : "แลกไม่สำเร็จ");
+      if (err instanceof Error && err.message === "คะแนนไม่เพียงพอ") {
+        setRedeemError("คะแนนสะสมไม่เพียงพอสำหรับการแลกรางวัลนี้");
+      } else {
+        setRedeemError("แลกรางวัลไม่สำเร็จ กรุณาลองใหม่อีกครั้ง");
+      }
     } finally {
       setRedeeming(null);
     }

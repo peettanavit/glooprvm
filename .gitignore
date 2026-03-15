@@ -17,7 +17,8 @@ web/node_modules/
 web/.next/
 web/out/
 
-# Python
+# Python / AI server
+ai_server/
 edge/.venv/
 edge/.venv2/
 edge/__pycache__/

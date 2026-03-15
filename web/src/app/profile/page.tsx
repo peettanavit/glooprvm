@@ -100,6 +100,7 @@ export default function ProfilePage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
+    let cancelled = false;
     let unsubscribeProfile: (() => void) | null = null;
     let unsubscribeSessions: (() => void) | null = null;
 
@@ -113,6 +114,7 @@ export default function ProfilePage() {
 
       try {
         await user.getIdToken();
+        if (cancelled) return;
         unsubscribeProfile = subscribeToUserProfile(user.uid, setProfile, () => router.replace("/login"));
         unsubscribeSessions = subscribeToUserSessions(user.uid, setSessions, () => router.replace("/login"));
       } catch {
@@ -121,6 +123,7 @@ export default function ProfilePage() {
     });
 
     return () => {
+      cancelled = true;
       unsubscribeAuth();
       if (unsubscribeProfile) unsubscribeProfile();
       if (unsubscribeSessions) unsubscribeSessions();
@@ -140,6 +143,18 @@ export default function ProfilePage() {
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !uid) return;
+
+    if (!file.type.startsWith("image/")) {
+      setProfileError("กรุณาเลือกไฟล์รูปภาพเท่านั้น");
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setProfileError("ขนาดไฟล์ต้องไม่เกิน 5MB");
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+
     setUploadingAvatar(true);
     setProfileError(null);
     try {

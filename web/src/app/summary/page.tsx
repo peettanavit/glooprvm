@@ -31,6 +31,7 @@ export default function SummaryPage() {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
     let unsubscribeMachine: (() => void) | null = null;
 
     const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
@@ -46,6 +47,7 @@ export default function SummaryPage() {
 
       try {
         await user.getIdToken();
+        if (cancelled) return;
         unsubscribeMachine = subscribeToMachine(
           (state) => {
             setMachine(state);
@@ -91,6 +93,7 @@ export default function SummaryPage() {
     });
 
     return () => {
+      cancelled = true;
       unsubscribeAuth();
       if (unsubscribeMachine) {
         unsubscribeMachine();

@@ -29,8 +29,7 @@ export async function redeemReward(
   reward: { id: string; name: string; cost: number },
 ): Promise<string> {
   const userRef = doc(db, "users", uid);
-  const redemptionRef = doc(collection(db, "users", uid, "redemptions"));
-  const code = generateRedeemCode();
+  let committedCode = "";
 
   await runTransaction(db, async (tx) => {
     const userSnap = await tx.get(userRef);
@@ -40,6 +39,11 @@ export async function redeemReward(
     if (currentScore < reward.cost) {
       throw new Error("คะแนนไม่เพียงพอ");
     }
+
+    // Generate inside the transaction so each retry gets fresh values
+    const redemptionRef = doc(collection(db, "users", uid, "redemptions"));
+    const code = generateRedeemCode();
+    committedCode = code;
 
     tx.update(userRef, {
       total_score: increment(-reward.cost),
@@ -55,7 +59,7 @@ export async function redeemReward(
     });
   });
 
-  return code;
+  return committedCode;
 }
 
 export interface UserProfile {

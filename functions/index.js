@@ -8,6 +8,9 @@ const { GoogleGenerativeAI } = require("@google/generative-ai");
 initializeApp();
 
 const geminiApiKey = defineSecret("GEMINI_API_KEY");
+const uploadApiKey = defineSecret("UPLOAD_API_KEY");
+
+const MAX_IMAGE_BYTES = 2 * 1024 * 1024; // 2 MB limit
 
 /**
  * HTTP Cloud Function — called by ESP32 when a bottle is detected.
@@ -15,10 +18,11 @@ const geminiApiKey = defineSecret("GEMINI_API_KEY");
  * Request:
  *   POST  (raw JPEG body)
  *   Headers:
- *     Content-Type: image/jpeg
- *     X-Machine-Id:  <machineId>
- *     X-User-Id:     <uid>        (optional)
- *     X-Session-Id:  <sessionId>  (optional)
+ *     Content-Type:  image/jpeg
+ *     X-Api-Key:     <shared secret>  (required)
+ *     X-Machine-Id:  <machineId>      (required)
+ *     X-User-Id:     <uid>            (optional)
+ *     X-Session-Id:  <sessionId>      (optional)
  *
  * Response (JSON):
  *   { status: "PROCESSING"|"REJECTED", valid: bool, path: string }
@@ -27,13 +31,27 @@ exports.uploadBottleImage = onRequest(
   {
     timeoutSeconds: 60,
     memory: "512MiB",
-    secrets: [geminiApiKey],
-    // Allow unauthenticated (machine uses its own API key header instead of Firebase Auth)
+    secrets: [geminiApiKey, uploadApiKey],
+    // Allow unauthenticated at IAM level; auth is enforced via X-Api-Key header
     invoker: "public",
   },
   async (req, res) => {
     if (req.method !== "POST") {
       res.status(405).send("Method Not Allowed");
+      return;
+    }
+
+    // ── Fix 4: Content-Type validation ────────────────────────────────────────
+    if (!req.headers["content-type"]?.startsWith("image/jpeg")) {
+      res.status(415).json({ error: "Content-Type must be image/jpeg" });
+      return;
+    }
+
+    // ── Fix 3: Shared-secret API key validation ───────────────────────────────
+    const expectedKey = uploadApiKey.value().trim();
+    const providedKey = req.headers["x-api-key"];
+    if (!expectedKey || !providedKey || providedKey !== expectedKey) {
+      res.status(401).json({ error: "Unauthorized" });
       return;
     }
 
@@ -46,14 +64,26 @@ exports.uploadBottleImage = onRequest(
       return;
     }
 
+    // ── Fix 1: Payload size limit ─────────────────────────────────────────────
     const imageBuffer = req.body;
     if (!imageBuffer || imageBuffer.length === 0) {
       res.status(400).json({ error: "Empty image body" });
       return;
     }
+    if (imageBuffer.length > MAX_IMAGE_BYTES) {
+      res.status(413).json({ error: `Payload too large (max ${MAX_IMAGE_BYTES / 1024 / 1024} MB)` });
+      return;
+    }
 
     const db = getFirestore();
     const machineRef = db.collection("machines").doc(machineId);
+
+    // ── Fix 2: Validate machineId exists before touching Storage or Gemini ────
+    const machineSnap = await machineRef.get();
+    if (!machineSnap.exists) {
+      res.status(404).json({ error: "Unknown machine" });
+      return;
+    }
 
     try {
       // ── 1. Save image to Firebase Storage ─────────────────────────────────
@@ -144,6 +174,18 @@ Rules:
       });
 
       console.log(`[Firestore] machine ${machineId} status → ${newStatus}`);
+
+      // ── 4. Write sorting log (valid bottles only) ──────────────────────────
+      if (isValid) {
+        await db.collection("logs").add({
+          machine_id: machineId,
+          bottle_type: classifyLabel,
+          user_id: userId,
+          session_id: sessionId,
+          sorted_at: FieldValue.serverTimestamp(),
+        });
+        console.log(`[Logs] sorted: ${classifyLabel} by ${userId || "unknown"}`);
+      }
 
       res.status(200).json({
         status: newStatus,

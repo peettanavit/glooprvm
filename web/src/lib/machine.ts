@@ -1,15 +1,29 @@
 import {
+  collection,
   doc,
   increment,
+  limit,
   onSnapshot,
+  orderBy,
+  query,
   runTransaction,
   serverTimestamp,
   setDoc,
   updateDoc,
+  type Timestamp,
   type Unsubscribe,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { MACHINE_ID, type MachineState, type MachineStatus } from "@/types/machine";
+
+export interface SortingLog {
+  id: string;
+  machine_id: string;
+  bottle_type: string;
+  user_id: string;
+  session_id: string;
+  sorted_at?: Timestamp;
+}
 
 const machineRef = doc(db, "machines", MACHINE_ID);
 
@@ -102,6 +116,38 @@ export async function persistUserSessionScore(
   });
 
   return created;
+}
+
+export function subscribeToSortingLogs(
+  callback: (logs: SortingLog[]) => void,
+  onError?: (error: Error) => void,
+): Unsubscribe {
+  const q = query(
+    collection(db, "logs"),
+    orderBy("sorted_at", "desc"),
+    limit(10),
+  );
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      callback(
+        snapshot.docs.map((d) => {
+          const data = d.data();
+          return {
+            id: d.id,
+            machine_id: data.machine_id ?? "",
+            bottle_type: data.bottle_type ?? "unknown",
+            user_id: data.user_id ?? "",
+            session_id: data.session_id ?? "",
+            sorted_at: data.sorted_at as Timestamp | undefined,
+          };
+        }),
+      );
+    },
+    (error) => {
+      if (onError) onError(error);
+    },
+  );
 }
 
 export function subscribeToMachine(

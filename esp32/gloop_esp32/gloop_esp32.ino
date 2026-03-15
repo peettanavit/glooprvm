@@ -3,10 +3,13 @@
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include "esp_camera.h"
+#include "ESP32_OV5640_AF.h"
 
 #include "../config.h"
 
 namespace {
+
+OV5640 ov5640;
 
 const unsigned long WIFI_RETRY_MS = 4000;
 const unsigned long FIRESTORE_POLL_MS = 200;
@@ -26,10 +29,6 @@ unsigned long tokenExpiresAt = 0;
 unsigned long rejectUntil = 0;
 unsigned long lastSensorReadAt = 0;
 bool lastSensorState = false;
-unsigned long lastReadyButtonReadAt = 0;
-bool lastReadyButtonState = false;
-volatile bool readyButtonInterrupt = false;
-volatile bool slotSmallInterrupt = false;
 bool wifiBeginInProgress = false;
 
 String idToken;
@@ -44,9 +43,9 @@ struct MachineState {
 };
 
 MachineState machineState;
-bool cameraReady = false;
-unsigned long lastCameraInitAttemptAt = 0;
-const unsigned long CAMERA_RETRY_MS = 3000;
+
+volatile bool readyButtonInterrupt = false;
+volatile bool slotSmallInterrupt = false;
 
 bool isActiveStatus(const String& status) {
   return status == "READY" || status == "PROCESSING" || status == "REJECTED";
@@ -93,45 +92,33 @@ bool initCamera() {
     Serial.printf("[CAM] init failed: 0x%x\n", err);
     return false;
   }
-  // esp_camera_init() may disturb GPIO48 via LEDC/RMT — turn LED off again
-  neopixelWrite(48, 0, 0, 0);
+  neopixelWrite(48, 0, 0, 0); // LEDC from camera init disturbs GPIO48
 
   sensor_t* s = esp_camera_sensor_get();
   s->set_special_effect(s, 0);
   s->set_whitebal(s, 1);
   s->set_awb_gain(s, 1);
-  s->set_wb_mode(s, 1); // 1=sunny (fixed preset — more reliable than auto on OV5640 cold start)
+  s->set_wb_mode(s, 0); // 0=auto
   s->set_exposure_ctrl(s, 1);
   s->set_gain_ctrl(s, 1);
   s->set_brightness(s, 0);
   s->set_saturation(s, 0);
+  s->set_sharpness(s, 2);
 
-  // warm-up: discard frames so AWB/AEC can settle
-  // Keep calling neopixelWrite to ensure LED stays off while AWB calibrates
-  delay(3000);
-  neopixelWrite(48, 0, 0, 0);
-  for (int i = 0; i < 20; i++) {
-    camera_fb_t* warmup = esp_camera_fb_get();
-    if (warmup) esp_camera_fb_return(warmup);
-    delay(150);
-    if (i % 5 == 0) neopixelWrite(48, 0, 0, 0);
+  ov5640.start(s);
+  if (ov5640.focusInit() == 0) {
+    Serial.println("[CAM] AF firmware loaded");
+    if (ov5640.autoFocusMode() == 0) {
+      Serial.println("[CAM] AF continuous mode enabled");
+    } else {
+      Serial.println("[CAM] AF mode set failed");
+    }
+  } else {
+    Serial.println("[CAM] AF init failed (not OV5640?)");
   }
 
   Serial.println("[CAM] ready");
   return true;
-}
-
-void ensureCamera() {
-  if (cameraReady || !CAMERA_ENABLED) {
-    return;
-  }
-  const unsigned long now = millis();
-  if (now - lastCameraInitAttemptAt < CAMERA_RETRY_MS) {
-    return;
-  }
-  lastCameraInitAttemptAt = now;
-  Serial.println("[CAM] attempting init...");
-  cameraReady = initCamera();
 }
 
 bool uploadFrameToCloudFunction(camera_fb_t* fb, const String& userId, const String& sessionId) {
@@ -143,8 +130,10 @@ bool uploadFrameToCloudFunction(camera_fb_t* fb, const String& userId, const Str
   }
 
   HTTPClient http;
+  http.setTimeout(20000);
   http.begin(secureClient, CF_UPLOAD_URL);
   http.addHeader("Content-Type", "image/jpeg");
+  http.addHeader("X-Api-Key", CF_UPLOAD_API_KEY);
   http.addHeader("X-Machine-Id", MACHINE_ID);
   if (userId.length()) {
     http.addHeader("X-User-Id", userId);
@@ -157,6 +146,14 @@ bool uploadFrameToCloudFunction(camera_fb_t* fb, const String& userId, const Str
   String body = http.getString();
   http.end();
 
+  if (code == 401) {
+    Serial.println("[CAM] upload rejected (401) — check CF_UPLOAD_API_KEY in config.h");
+    return false;
+  }
+  if (code == 413) {
+    Serial.println("[CAM] upload rejected (413) — image too large for Cloud Function");
+    return false;
+  }
   if (code < 200 || code >= 300) {
     Serial.printf("[CAM] upload failed (%d): %s\n", code, body.c_str());
     return false;
@@ -179,7 +176,7 @@ bool parseIntField(JsonVariantConst field, int& output) {
   }
   JsonVariantConst integerValue = field["integerValue"];
   if (!integerValue.is<const char*>()) {
-    return false; 
+    return false;
   }
   output = atoi(integerValue.as<const char*>());
   return true;
@@ -323,6 +320,7 @@ bool ensureAuth() {
 
 bool firestoreGet(MachineState& outState) {
   HTTPClient http;
+  http.setTimeout(8000);
   http.begin(secureClient, machineDocUrl());
   http.addHeader("Authorization", String("Bearer ") + idToken);
   int code = http.GET();
@@ -333,6 +331,12 @@ bool firestoreGet(MachineState& outState) {
     outState = MachineState{};
     outState.exists = false;
     return true;
+  }
+
+  if (code == 401) {
+    Serial.println("[Firestore] GET 401 — forcing token refresh");
+    idToken = "";
+    return false;
   }
 
   if (code < 200 || code >= 300) {
@@ -358,7 +362,6 @@ bool firestoreGet(MachineState& outState) {
   if (fields["status"]["stringValue"].is<const char*>()) {
     parsed.status = fields["status"]["stringValue"].as<const char*>();
   }
-
   if (fields["current_user"]["stringValue"].is<const char*>()) {
     parsed.currentUser = fields["current_user"]["stringValue"].as<const char*>();
   }
@@ -397,6 +400,7 @@ bool firestorePatchStatus(const String& status) {
   String payloadText;
   serializeJson(payload, payloadText);
 
+  http.setTimeout(8000);
   http.begin(secureClient, url);
   http.addHeader("Authorization", String("Bearer ") + idToken);
   http.addHeader("Content-Type", "application/json");
@@ -404,6 +408,11 @@ bool firestorePatchStatus(const String& status) {
   String body = http.getString();
   http.end();
 
+  if (code == 401) {
+    Serial.println("[Firestore] patch 401 — forcing token refresh");
+    idToken = "";
+    return false;
+  }
   if (code < 200 || code >= 300) {
     Serial.printf("[Firestore] patch status failed (%d): %s\n", code, body.c_str());
     return false;
@@ -421,7 +430,6 @@ bool firestoreSlotEvent(const String& size) {
   const String url = String("https://firestore.googleapis.com/v1/projects/") +
                      FIREBASE_PROJECT_ID +
                      "/databases/(default)/documents:commit";
-
   const String docPath = String("projects/") + FIREBASE_PROJECT_ID +
                          "/databases/(default)/documents/machines/" + MACHINE_ID;
 
@@ -455,6 +463,7 @@ bool firestoreSlotEvent(const String& size) {
   String payloadText;
   serializeJson(payload, payloadText);
 
+  http.setTimeout(8000);
   http.begin(secureClient, url);
   http.addHeader("Authorization", String("Bearer ") + idToken);
   http.addHeader("Content-Type", "application/json");
@@ -462,71 +471,17 @@ bool firestoreSlotEvent(const String& size) {
   String body = http.getString();
   http.end();
 
+  if (code == 401) {
+    Serial.println("[Firestore] slot event 401 — forcing token refresh");
+    idToken = "";
+    return false;
+  }
   if (code < 200 || code >= 300) {
     Serial.printf("[Firestore] slot event failed (%d): %s\n", code, body.c_str());
     return false;
   }
   Serial.printf("[Slot] %s +1 score+%d, status->READY\n", size.c_str(), score);
   return true;
-}
-
-bool firestorePatchStatusAndScore(const String& status, int score) {
-  HTTPClient http;
-  const String url = String("https://firestore.googleapis.com/v1/projects/") +
-                     FIREBASE_PROJECT_ID +
-                     "/databases/(default)/documents:commit";
-  const String docPath = String("projects/") + FIREBASE_PROJECT_ID +
-                         "/databases/(default)/documents/machines/" + MACHINE_ID;
-
-  DynamicJsonDocument payload(768);
-  JsonObject update = payload["writes"][0]["update"].to<JsonObject>();
-  update["name"] = docPath;
-  update["fields"]["status"]["stringValue"] = status;
-  update["fields"]["session_score"]["integerValue"] = String(score);
-  payload["writes"][0]["updateMask"]["fieldPaths"][0] = "status";
-  payload["writes"][0]["updateMask"]["fieldPaths"][1] = "session_score";
-  JsonObject transform = payload["writes"][1]["transform"].to<JsonObject>();
-  transform["document"] = docPath;
-  JsonObject ft = transform["fieldTransforms"][0].to<JsonObject>();
-  ft["fieldPath"] = "updatedAt";
-  ft["setToServerValue"] = "REQUEST_TIME";
-
-  String payloadText;
-  serializeJson(payload, payloadText);
-
-  http.begin(secureClient, url);
-  http.addHeader("Authorization", String("Bearer ") + idToken);
-  http.addHeader("Content-Type", "application/json");
-  int code = http.POST(payloadText);
-  String body = http.getString();
-  http.end();
-
-  if (code < 200 || code >= 300) {
-    Serial.printf("[Firestore] patch status+score failed (%d): %s\n", code, body.c_str());
-    return false;
-  }
-  return true;
-}
-
-bool readBottleEdge() {
-  const unsigned long now = millis();
-  if (now - lastSensorReadAt < SENSOR_DEBOUNCE_MS) {
-    return false;
-  }
-  lastSensorReadAt = now;
-
-  bool active = false;
-  if (DEV_SIMULATION) {
-    // Random event generator for bench testing without sensor.
-    active = (float) (esp_random() % 10000) / 10000.0f < SIM_BOTTLE_PROBABILITY;
-  } else {
-    const int raw = digitalRead(SENSOR_PIN);
-    active = SENSOR_ACTIVE_HIGH ? (raw == HIGH) : (raw == LOW);
-  }
-
-  const bool edge = active && !lastSensorState;
-  lastSensorState = active;
-  return edge;
 }
 
 bool readSensorEdgeRaw() {
@@ -543,41 +498,12 @@ bool readSensorEdgeRaw() {
   return edge;
 }
 
-bool readReadyButtonEdge() {
-  const unsigned long now = millis();
-  if (now - lastReadyButtonReadAt < SENSOR_DEBOUNCE_MS) {
-    return false;
-  }
-  lastReadyButtonReadAt = now;
-
-  const int raw = digitalRead(READY_BUTTON_PIN);
-  const bool active = (raw == LOW); // INPUT_PULLUP: pressed = LOW
-  const bool edge = active && !lastReadyButtonState;
-  lastReadyButtonState = active;
-  return edge;
-}
-
 void IRAM_ATTR onReadyButtonInterrupt() {
   readyButtonInterrupt = true;
 }
 
 void IRAM_ATTR onSlotSmallInterrupt() {
   slotSmallInterrupt = true;
-}
-
-int classifyBottleScore() {
-  const int r = esp_random() % 100;
-  if (r < 40) {
-    return SCORE_SMALL;
-  }
-  if (r < 80) {
-    return SCORE_MEDIUM;
-  }
-  return SCORE_LARGE;
-}
-
-bool isBottleValid() {
-  return true;
 }
 
 void pulseSolenoid() {
@@ -591,19 +517,27 @@ void handleBottleInsert() {
     bool captured = false;
     bool uploaded = false;
 
-    // ดับ WS2812 — เรียกซ้ำหลายครั้งเพื่อให้แน่ใจ
-    for (int i = 0; i < 5; i++) {
-      neopixelWrite(48, 0, 0, 0);
-      delay(20);
-    }
-    delay(200);
     if (initCamera()) {
-      // warmup ในฉากจริง ให้ AWB re-calibrate กับแสงจริง
-      for (int i = 0; i < 10; i++) {
+      // warm-up: grab frames so AWB/AEC can settle
+      for (int i = 0; i < 20; i++) {
         camera_fb_t* w = esp_camera_fb_get();
         if (w) esp_camera_fb_return(w);
-        delay(100);
+        delay(500);
       }
+
+      // Wait for continuous AF to lock (up to 2 s)
+      {
+        const unsigned long afStart = millis();
+        while (millis() - afStart < 2000) {
+          uint8_t st = ov5640.getFWStatus();
+          if (st == FW_STATUS_S_FOCUSED) {
+            Serial.println("[CAM] AF focused");
+            break;
+          }
+          delay(100);
+        }
+      }
+
       camera_fb_t* fb = esp_camera_fb_get();
       if (!fb) {
         Serial.println("[CAM] capture failed");
@@ -614,7 +548,6 @@ void handleBottleInsert() {
         esp_camera_fb_return(fb);
       }
       esp_camera_deinit();
-      neopixelWrite(48, 0, 0, 0);
       Serial.println("[CAM] deinit");
     }
 
@@ -690,7 +623,6 @@ void testCamera() {
     esp_camera_fb_return(fb);
   }
   esp_camera_deinit();
-  neopixelWrite(48, 0, 0, 0);
 }
 
 void setup() {
@@ -698,7 +630,6 @@ void setup() {
   delay(300);
   Serial.println("Gloop ESP32 edge starting...");
 
-  neopixelWrite(48, 0, 0, 0);
   secureClient.setInsecure();
   setupPins();
   testCamera();
@@ -760,12 +691,7 @@ void loop() {
     return;
   }
 
-  Serial.printf("[DBG] status=%s user=%s active=%d\n",
-    machineState.status.c_str(),
-    machineState.currentUser.c_str(),
-    isSessionActive(machineState));
   if (machineState.status == "READY") {
-    Serial.println("[RVM] test: triggering capture");
     handleBottleInsert();
   }
 

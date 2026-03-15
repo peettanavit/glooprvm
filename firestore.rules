@@ -57,5 +57,10 @@ service cloud.firestore {
     match /users/{userId}/redemptions/{redemptionId} {
       allow read, write: if isSignedIn() && request.auth.uid == userId;
     }
+
+    match /logs/{logId} {
+      allow read: if isSignedIn();
+      allow write: if false; // written only by Cloud Functions via Admin SDK
+    }
   }
 }
