@@ -3,7 +3,7 @@ import "./globals.css";
 import Providers from "./providers";
 
 export const metadata: Metadata = {
-  title: "Gloop",
+  title: "Gloop RVM",
   description: "เครื่องรับคืนขวดอัจฉริยะ",
 };
 
