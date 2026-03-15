@@ -1,4 +1,5 @@
 const { onRequest } = require("firebase-functions/v2/https");
+const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { defineSecret } = require("firebase-functions/params");
 const { initializeApp } = require("firebase-admin/app");
 const { getStorage } = require("firebase-admin/storage");
@@ -85,6 +86,20 @@ exports.uploadBottleImage = onRequest(
       return;
     }
 
+    // ── Rate limit: max 1 upload per 3 s per machine ──────────────────────────
+    const machineData = machineSnap.data();
+    const lastUploadAt = machineData.last_upload_at;
+    if (lastUploadAt) {
+      const msElapsed = Date.now() - lastUploadAt.toMillis();
+      if (msElapsed < 3000) {
+        res.status(429).json({ error: "Rate limit: wait before next upload" });
+        return;
+      }
+    }
+
+    // Record upload timestamp immediately to block concurrent requests
+    await machineRef.update({ last_upload_at: FieldValue.serverTimestamp() });
+
     try {
       // ── 1. Save image to Firebase Storage ─────────────────────────────────
       const bucket = getStorage().bucket();
@@ -139,15 +154,26 @@ Rules:
           const text = result.response.text().trim();
           console.log(`[Gemini] raw response: ${text}`);
 
-          const jsonMatch = text.match(/\{[\s\S]*?\}/);
-          if (jsonMatch) {
-            const parsed = JSON.parse(jsonMatch[0]);
+          // Try parsing the full text first, then extract the first {...} block.
+          let parsed = null;
+          try {
+            parsed = JSON.parse(text);
+          } catch {
+            const jsonMatch = text.match(/\{[^{}]*\}/);
+            if (jsonMatch) {
+              try { parsed = JSON.parse(jsonMatch[0]); } catch { /* leave null */ }
+            }
+          }
+
+          if (parsed !== null && typeof parsed === "object" && "valid" in parsed) {
             isValid = parsed.valid === true;
             classifyReason = parsed.reason || "classified";
             classifyLabel = parsed.label || "unknown";
           } else {
-            console.warn("[Gemini] could not parse JSON, defaulting to accept");
-            classifyReason = "parse_error_accept";
+            console.warn("[Gemini] could not parse JSON, defaulting to reject");
+            isValid = false;
+            classifyReason = "parse_error_reject";
+            classifyLabel = "unknown";
           }
         } catch (geminiErr) {
           console.error("[Gemini] classification error:", geminiErr);
@@ -210,3 +236,42 @@ Rules:
     }
   }
 );
+
+/**
+ * Scheduled function — runs every 5 minutes.
+ * Resets any machine stuck in an active state (READY/PROCESSING/REJECTED)
+ * with no activity for more than 10 minutes.
+ */
+exports.resetStaleSessions = onSchedule("every 5 minutes", async () => {
+  const db = getFirestore();
+  const TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
+  const cutoff = new Date(Date.now() - TIMEOUT_MS);
+
+  const snapshot = await db.collection("machines")
+    .where("status", "in", ["READY", "PROCESSING", "REJECTED"])
+    .get();
+
+  if (snapshot.empty) {
+    console.log("[resetStaleSessions] no active machines");
+    return;
+  }
+
+  const resets = snapshot.docs
+    .filter((doc) => {
+      const updatedAt = doc.data().updatedAt?.toDate?.();
+      return updatedAt && updatedAt < cutoff;
+    })
+    .map((doc) => {
+      console.log(`[resetStaleSessions] resetting ${doc.id} (last active: ${doc.data().updatedAt?.toDate()})`);
+      return doc.ref.update({
+        status: "IDLE",
+        current_user: "",
+        session_id: "",
+        session_score: 0,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+    });
+
+  await Promise.all(resets);
+  console.log(`[resetStaleSessions] reset ${resets.length} machine(s)`);
+});
