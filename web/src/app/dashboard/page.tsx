@@ -115,7 +115,7 @@ export default function DashboardPage() {
               }
 
               if (state.status === "COMPLETED" && !waitingForMachineRef.current) {
-                router.push("/summary");
+                window.location.href = "/summary";
               }
 
               // Auto-retry assignment when we're waiting and the machine becomes free
@@ -177,7 +177,7 @@ export default function DashboardPage() {
         Date.now() - lastActivityRef.current > SESSION_TIMEOUT_MS
       ) {
         forceSetStatus("COMPLETED").then(() => {
-          router.push("/summary?manual=1");
+          window.location.href = "/summary?manual=1";
         });
       }
     }, 30_000);
@@ -188,7 +188,7 @@ export default function DashboardPage() {
     setEnding(true);
     try {
       await forceSetStatus("COMPLETED");
-      router.push("/summary?manual=1");
+      window.location.href = "/summary?manual=1";
     } finally {
       setEnding(false);
     }
