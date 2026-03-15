@@ -27,15 +27,14 @@ export default function LandingPage() {
 
         {/* Logo + Brand */}
         <div className="flex flex-col items-center gap-4">
-          <div className="relative w-24 h-24 rounded-2xl overflow-hidden shadow-md border border-green-100">
-            <Image
-              src="/logo.jpg"
-              alt="Gloop logo"
-              fill
-              className="object-cover"
-              priority
-            />
-          </div>
+          <Image
+            src="/logo.jpg"
+            alt="Gloop logo"
+            width={96}
+            height={96}
+            className="rounded-2xl shadow-md border border-green-100 object-cover"
+            priority
+          />
           <div className="text-center">
             <h1 className="text-4xl font-bold text-green-700 tracking-tight">Gloop</h1>
             <p className="text-gray-500 mt-1 text-base">เครื่องรับคืนขวดอัจฉริยะ</p>
