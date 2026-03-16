@@ -10,6 +10,7 @@ import {
   serverTimestamp,
   setDoc,
   updateDoc,
+  where,
   type Timestamp,
   type Unsubscribe,
 } from "firebase/firestore";
@@ -45,7 +46,9 @@ export async function assignMachineToUser(uid: string): Promise<void> {
 
     const sessionId = typeof globalThis.crypto?.randomUUID === "function"
       ? globalThis.crypto.randomUUID()
-      : `${uid}-${Date.now()}`;
+      : Array.from(globalThis.crypto.getRandomValues(new Uint8Array(16)))
+          .map((b) => b.toString(16).padStart(2, "0"))
+          .join("-");
 
     tx.set(
       machineRef,
@@ -73,10 +76,6 @@ export async function resetMachine(): Promise<void> {
 
 export async function forceSetStatus(status: MachineStatus): Promise<void> {
   await updateDoc(machineRef, { status });
-}
-
-export async function addDebugScore(value: number): Promise<void> {
-  await updateDoc(machineRef, { session_score: increment(value) });
 }
 
 export async function persistUserSessionScore(
@@ -121,12 +120,12 @@ export async function persistUserSessionScore(
 export function subscribeToSortingLogs(
   callback: (logs: SortingLog[]) => void,
   onError?: (error: Error) => void,
+  userId?: string,
 ): Unsubscribe {
-  const q = query(
-    collection(db, "logs"),
-    orderBy("sorted_at", "desc"),
-    limit(10),
-  );
+  const constraints = userId
+    ? [where("user_id", "==", userId), orderBy("sorted_at", "desc"), limit(10)]
+    : [orderBy("sorted_at", "desc"), limit(10)];
+  const q = query(collection(db, "logs"), ...constraints);
   return onSnapshot(
     q,
     (snapshot) => {

@@ -6,13 +6,13 @@
 #include "ESP32_OV5640_AF.h"
 
 #include "../config.h"
+#include "../firebase_cert.h"
 
 namespace {
 
 OV5640 ov5640;
 
 const unsigned long WIFI_RETRY_MS = 4000;
-const unsigned long FIRESTORE_POLL_MS = 200;
 const unsigned long REJECT_HOLD_MS = 1200;
 const unsigned long TOKEN_REFRESH_MARGIN_MS = 60000;
 const unsigned long SENSOR_DEBOUNCE_MS = 20;
@@ -30,6 +30,7 @@ unsigned long rejectUntil = 0;
 unsigned long lastSensorReadAt = 0;
 bool lastSensorState = false;
 bool wifiBeginInProgress = false;
+bool timeInitialized = false;
 
 String idToken;
 String refreshToken;
@@ -95,6 +96,11 @@ bool initCamera() {
   neopixelWrite(48, 0, 0, 0); // LEDC from camera init disturbs GPIO48
 
   sensor_t* s = esp_camera_sensor_get();
+  if (!s) {
+    Serial.println("[CAM] sensor_get returned null — check wiring/pins");
+    esp_camera_deinit();
+    return false;
+  }
   s->set_special_effect(s, 0);
   s->set_whitebal(s, 1);
   s->set_awb_gain(s, 1);
@@ -203,6 +209,25 @@ bool ensureWiFi() {
   return false;
 }
 
+bool ensureTime() {
+  if (timeInitialized) return true;
+  if (WiFi.status() != WL_CONNECTED) return false;
+
+  configTime(0, 0, "pool.ntp.org", "time.google.com");
+  struct tm timeinfo;
+  for (int i = 0; i < 20; i++) {
+    if (getLocalTime(&timeinfo)) {
+      timeInitialized = true;
+      Serial.printf("[NTP] time synced: %04d-%02d-%02d\n",
+                    timeinfo.tm_year + 1900, timeinfo.tm_mon + 1, timeinfo.tm_mday);
+      return true;
+    }
+    delay(500);
+  }
+  Serial.println("[NTP] time sync failed — SSL may fail");
+  return false;
+}
+
 bool parseAuthResponse(const String& body, bool refreshFlow) {
   DynamicJsonDocument doc(4096);
   DeserializationError err = deserializeJson(doc, body);
@@ -257,7 +282,10 @@ bool signInMachineAccount() {
   http.end();
 
   if (code < 200 || code >= 300) {
-    Serial.printf("[Auth] signIn failed (%d): %s\n", code, body.c_str());
+    char sslErr[128] = "";
+    secureClient.lastError(sslErr, sizeof(sslErr));
+    Serial.printf("[Auth] signIn failed (%d): %s | heap=%u ssl=%s\n",
+                  code, body.c_str(), ESP.getFreeHeap(), sslErr);
     return false;
   }
 
@@ -518,11 +546,11 @@ void handleBottleInsert() {
     bool uploaded = false;
 
     if (initCamera()) {
-      // warm-up: grab frames so AWB/AEC can settle
-      for (int i = 0; i < 20; i++) {
+      // warm-up: grab frames so AWB/AEC can settle (~2 s)
+      for (int i = 0; i < 10; i++) {
         camera_fb_t* w = esp_camera_fb_get();
         if (w) esp_camera_fb_return(w);
-        delay(500);
+        delay(200);
       }
 
       // Wait for continuous AF to lock (up to 2 s)
@@ -630,7 +658,7 @@ void setup() {
   delay(300);
   Serial.println("Gloop ESP32 edge starting...");
 
-  secureClient.setInsecure();
+  secureClient.setCACert(GOOGLE_ROOT_CA);
   setupPins();
   testCamera();
   ensureWiFi();
@@ -642,13 +670,19 @@ void loop() {
     return;
   }
 
+  if (!ensureTime()) {
+    delay(400);
+    return;
+  }
+
   if (!ensureAuth()) {
     delay(400);
     return;
   }
 
   const unsigned long now = millis();
-  if (now - lastFirestorePollAt >= FIRESTORE_POLL_MS) {
+  const unsigned long pollInterval = isSessionActive(machineState) ? 200UL : 2000UL;
+  if (now - lastFirestorePollAt >= pollInterval) {
     lastFirestorePollAt = now;
     MachineState latest;
     if (firestoreGet(latest)) {

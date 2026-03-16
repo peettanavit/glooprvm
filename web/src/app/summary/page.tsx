@@ -18,17 +18,11 @@ const initialState: MachineState = {
 
 export default function SummaryPage() {
   const router = useRouter();
-  const [manualMode, setManualMode] = useState(false);
   const [machine, setMachine] = useState<MachineState>(initialState);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const savedSessionRef = useRef<string>("");
-
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    setManualMode(params.get("manual") === "1");
-  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -51,7 +45,8 @@ export default function SummaryPage() {
         unsubscribeMachine = subscribeToMachine(
           (state) => {
             setMachine(state);
-            if (!manualMode && state.status !== "COMPLETED") {
+            const isManual = new URLSearchParams(window.location.search).get("manual") === "1";
+            if (!isManual && state.status !== "COMPLETED") {
               router.replace("/dashboard");
               return;
             }
@@ -70,10 +65,16 @@ export default function SummaryPage() {
               .then(() => {
                 savedSessionRef.current = state.session_id ?? "";
                 setSaved(true);
+                sessionStorage.setItem("summaryViewed", state.session_id ?? "");
+                // resetMachine failure is non-critical — score already saved;
+                // scheduled Cloud Function will clean up stale sessions.
+                return resetMachine().catch((err) => {
+                  console.error("resetMachine failed (non-critical):", err);
+                });
               })
               .catch((error: unknown) => {
-                const message = error instanceof Error ? error.message : "บันทึกคะแนนไม่สำเร็จ";
-                setSaveError(message);
+                setSaveError("บันทึกคะแนนไม่สำเร็จ กรุณาลองใหม่อีกครั้ง");
+                console.error("persistUserSessionScore failed:", error);
               })
               .finally(() => {
                 setSaving(false);
@@ -99,10 +100,9 @@ export default function SummaryPage() {
         unsubscribeMachine();
       }
     };
-  }, [manualMode, router]);
+  }, [router]);
 
-  const onEndSession = async () => {
-    await resetMachine();
+  const onSignOut = async () => {
     await signOut(auth);
     router.replace("/login");
   };
@@ -149,8 +149,12 @@ export default function SummaryPage() {
           </Button>
         </div>
 
-        <Button color="primary" onPress={onEndSession} size="lg" className="font-semibold">
-          ยืนยันและออกจากระบบ
+        <Button as={Link} href="/dashboard" color="success" size="lg" className="font-semibold">
+          ใส่ขวดอีกครั้ง
+        </Button>
+
+        <Button color="default" variant="flat" onPress={onSignOut} className="font-medium">
+          ออกจากระบบ
         </Button>
       </div>
     </main>

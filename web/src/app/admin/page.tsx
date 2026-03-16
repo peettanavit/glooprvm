@@ -12,7 +12,8 @@ import {
   type ChipProps,
 } from "@heroui/react";
 import { onAuthStateChanged } from "firebase/auth";
-import { auth } from "@/lib/firebase";
+import { doc, getDoc } from "firebase/firestore";
+import { auth, db } from "@/lib/firebase";
 import {
   resetMachine,
   subscribeToMachine,
@@ -64,8 +65,15 @@ export default function AdminPage() {
       if (!user) { router.replace("/login"); return; }
 
       try {
-        await user.getIdToken();
+        await user.getIdToken(); // force-refresh token before Firestore reads
         if (cancelled) return;
+
+        const adminSnap = await getDoc(doc(db, "admins", user.uid));
+        if (cancelled) return;
+        if (!adminSnap.exists()) {
+          router.replace("/dashboard");
+          return;
+        }
 
         unsubscribeMachine = subscribeToMachine(setMachine, (error) => {
           console.error("Machine listener error:", error);

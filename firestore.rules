@@ -12,10 +12,7 @@ service cloud.firestore {
     function isMachineClient() {
       return isSignedIn()
         && request.auth.token.email is string
-        && (
-          request.auth.token.email.matches('^machine-.*@.*$') ||
-          request.auth.token.email == 'Tanavit.parn@gmail.com'
-        );
+        && request.auth.token.email.matches('^machine-.*@.*$');
     }
 
     match /machines/{machineId} {
@@ -61,6 +58,12 @@ service cloud.firestore {
     match /logs/{logId} {
       allow read: if isSignedIn();
       allow write: if false; // written only by Cloud Functions via Admin SDK
+    }
+
+    // Admin role: documents created manually via Firebase console
+    match /admins/{userId} {
+      allow read: if isSignedIn() && request.auth.uid == userId;
+      allow write: if false;
     }
   }
 }

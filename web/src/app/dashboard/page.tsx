@@ -58,6 +58,7 @@ export default function DashboardPage() {
   // Refs so subscription callbacks always see the latest values without stale closures
   const waitingForMachineRef = useRef(false);
   const currentUidRef = useRef<string | null>(null);
+  const endingSessionRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -74,7 +75,7 @@ export default function DashboardPage() {
         waitingForMachineRef.current = false;
         // Set up logs subscription once assignment succeeds (idempotent: skip if already set up)
         if (!unsubscribeLogs) {
-          unsubscribeLogs = subscribeToSortingLogs(setSortingLogs);
+          unsubscribeLogs = subscribeToSortingLogs(setSortingLogs, undefined, uid);
         }
       } catch (err) {
         if (cancelled) return;
@@ -114,8 +115,11 @@ export default function DashboardPage() {
                 lastActivityRef.current = Date.now();
               }
 
-              if (state.status === "COMPLETED" && !waitingForMachineRef.current) {
-                window.location.href = "/summary";
+              if (state.status === "COMPLETED" && !waitingForMachineRef.current && !endingSessionRef.current) {
+                const alreadyViewed = sessionStorage.getItem("summaryViewed") === state.session_id;
+                if (!alreadyViewed) {
+                  window.location.href = "/summary?manual=1";
+                }
               }
 
               // Auto-retry assignment when we're waiting and the machine becomes free
@@ -130,9 +134,12 @@ export default function DashboardPage() {
               }
             },
             (error) => {
-              if (auth.currentUser) {
-                console.error("Machine listener error:", error);
+              const code = (error as { code?: string }).code ?? "";
+              if (code === "permission-denied" || code === "unauthenticated") {
                 router.replace("/login");
+              } else {
+                // Transient network error — stay on page, Firestore will reconnect
+                console.error("Machine listener error:", error);
               }
             },
           );
@@ -152,6 +159,7 @@ export default function DashboardPage() {
       currentUidRef.current = null;
       waitingForMachineRef.current = false;
       setWaitingForMachine(false);
+      sessionStorage.removeItem("summaryViewed");
 
       if (unsubscribeLogs) {
         unsubscribeLogs();
@@ -176,8 +184,11 @@ export default function DashboardPage() {
         machine.status === "READY" &&
         Date.now() - lastActivityRef.current > SESSION_TIMEOUT_MS
       ) {
+        endingSessionRef.current = true;
         forceSetStatus("COMPLETED").then(() => {
           window.location.href = "/summary?manual=1";
+        }).catch(() => {
+          endingSessionRef.current = false;
         });
       }
     }, 30_000);
@@ -185,6 +196,7 @@ export default function DashboardPage() {
   }, [machine.status, router]);
 
   const endSessionNow = async () => {
+    endingSessionRef.current = true;
     setEnding(true);
     try {
       await forceSetStatus("COMPLETED");

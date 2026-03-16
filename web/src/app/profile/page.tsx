@@ -161,8 +161,12 @@ export default function ProfilePage() {
       const url = await uploadAvatar(uid, file);
       await updateUserProfile(uid, { avatar_url: url, avatar_preset: "" });
       setShowAvatarPicker(false);
-    } catch {
-      setProfileError("อัปโหลดรูปไม่สำเร็จ กรุณาลองใหม่");
+    } catch (err) {
+      if (err instanceof Error && err.message.includes("storage/unauthorized")) {
+        setProfileError("ไม่มีสิทธิ์อัปโหลดรูป กรุณาล็อกอินใหม่");
+      } else {
+        setProfileError("อัปโหลดรูปไม่สำเร็จ กรุณาลองใหม่");
+      }
     } finally {
       setUploadingAvatar(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -175,8 +179,12 @@ export default function ProfilePage() {
     try {
       await updateUserProfile(uid, { avatar_preset: selectedPreset, avatar_url: "" });
       setShowAvatarPicker(false);
-    } catch {
-      setProfileError("บันทึกไม่สำเร็จ กรุณาลองใหม่");
+    } catch (err) {
+      if (err instanceof Error && err.message.includes("permission-denied")) {
+        setProfileError("ไม่มีสิทธิ์แก้ไขโปรไฟล์ กรุณาล็อกอินใหม่");
+      } else {
+        setProfileError("บันทึกไม่สำเร็จ กรุณาลองใหม่");
+      }
     } finally {
       setUploadingAvatar(false);
     }
@@ -189,8 +197,12 @@ export default function ProfilePage() {
     try {
       await updateUserProfile(uid, { nickname: nicknameInput.trim() });
       setEditingNickname(false);
-    } catch {
-      setProfileError("บันทึกชื่อไม่สำเร็จ กรุณาลองใหม่");
+    } catch (err) {
+      if (err instanceof Error && err.message.includes("permission-denied")) {
+        setProfileError("ไม่มีสิทธิ์แก้ไขโปรไฟล์ กรุณาล็อกอินใหม่");
+      } else {
+        setProfileError("บันทึกชื่อไม่สำเร็จ กรุณาลองใหม่");
+      }
     } finally {
       setSavingNickname(false);
     }
