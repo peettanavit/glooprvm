@@ -8,6 +8,7 @@ const { GoogleGenerativeAI } = require("@google/generative-ai");
 
 initializeApp();
 
+const db = getFirestore();
 const geminiApiKey = defineSecret("GEMINI_API_KEY");
 const uploadApiKey = defineSecret("UPLOAD_API_KEY");
 
@@ -76,29 +77,31 @@ exports.uploadBottleImage = onRequest(
       return;
     }
 
-    const db = getFirestore();
     const machineRef = db.collection("machines").doc(machineId);
 
-    // ── Fix 2: Validate machineId exists before touching Storage or Gemini ────
-    const machineSnap = await machineRef.get();
-    if (!machineSnap.exists) {
+    // ── Validate machine + atomic rate limit (transaction prevents TOCTOU) ────
+    let machineNotFound = false;
+    let rateLimited = false;
+
+    await db.runTransaction(async (tx) => {
+      const snap = await tx.get(machineRef);
+      if (!snap.exists) { machineNotFound = true; return; }
+      const lastUploadAt = snap.data().last_upload_at;
+      if (lastUploadAt && Date.now() - lastUploadAt.toMillis() < 3000) {
+        rateLimited = true;
+        return;
+      }
+      tx.update(machineRef, { last_upload_at: FieldValue.serverTimestamp() });
+    });
+
+    if (machineNotFound) {
       res.status(404).json({ error: "Unknown machine" });
       return;
     }
-
-    // ── Rate limit: max 1 upload per 3 s per machine ──────────────────────────
-    const machineData = machineSnap.data();
-    const lastUploadAt = machineData.last_upload_at;
-    if (lastUploadAt) {
-      const msElapsed = Date.now() - lastUploadAt.toMillis();
-      if (msElapsed < 3000) {
-        res.status(429).json({ error: "Rate limit: wait before next upload" });
-        return;
-      }
+    if (rateLimited) {
+      res.status(429).json({ error: "Rate limit: wait before next upload" });
+      return;
     }
-
-    // Record upload timestamp immediately to block concurrent requests
-    await machineRef.update({ last_upload_at: FieldValue.serverTimestamp() });
 
     try {
       // ── 1. Save image to Firebase Storage ─────────────────────────────────
@@ -130,18 +133,34 @@ exports.uploadBottleImage = onRequest(
       if (apiKey) {
         try {
           const genAI = new GoogleGenerativeAI(apiKey);
-          const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+          const model = genAI.getGenerativeModel({ model: process.env.GEMINI_MODEL || "gemini-1.5-flash" });
 
-          const prompt = `You are a smart recycling machine. Examine this image and decide whether the object is a valid recyclable plastic bottle (e.g. PET water bottle, beverage bottle, soda bottle).
+          const prompt = `You are a smart recycling machine (Gloop RVM). Examine this image and identify the bottle brand by reading the CAP logo and SIDE LABEL text/design.
+
+Accepted bottles (valid = true) — identify by brand markings:
+1. "m150"      — M-150 energy drink. Look for: "M-150" or "M150" text on the cap or label. Red/yellow label design with the M-150 logo.
+2. "cvitt"     — C-Vitt vitamin drink. Look for: "C-vitt" or "C-Vitt" text on the cap or label. Orange/white label with vitamin C branding.
+3. "lipoviton" — Lipoviton energy drink (ลิโพวิตัน). Look for: "Lipoviton" text on the cap or label. Yellow/green label design.
+
+Classification priority:
+- First try to read the brand name on the CAP (top of bottle).
+- If cap is not visible, read the SIDE LABEL text or logo.
+- If the brand matches one of the 3 above → valid = true.
+- If the brand is unrecognizable or different → valid = false.
+
+NOT accepted (valid = false):
+- Any bottle whose label/cap does not match M-150, C-Vitt, or Lipoviton
+- Plastic or PET bottles
+- Aluminum or tin cans
+- Cardboard, paper, tetra pak
+- Blurry or unclear images where brand cannot be determined
 
 Reply ONLY with a JSON object — no markdown, no extra text:
-{"valid": true, "label": "plastic bottle", "reason": "clear PET bottle"}
+{"valid": true, "label": "m150", "reason": "M-150 text visible on cap and red label"}
 or
-{"valid": false, "label": "non-bottle", "reason": "appears to be a can"}
+{"valid": false, "label": "other_glass", "reason": "label shows different brand, not accepted"}
 
-Rules:
-- valid = true  → plastic bottles only (PET/HDPE)
-- valid = false → glass, cans, cardboard, unclear image, non-bottle objects`;
+The label must be one of: "m150", "cvitt", "lipoviton", "can", "pet_bottle", "other_glass", "cardboard", "unknown".`;
 
           const imageData = {
             inlineData: {
@@ -243,7 +262,6 @@ Rules:
  * with no activity for more than 10 minutes.
  */
 exports.resetStaleSessions = onSchedule("every 5 minutes", async () => {
-  const db = getFirestore();
   const TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
   const cutoff = new Date(Date.now() - TIMEOUT_MS);
 

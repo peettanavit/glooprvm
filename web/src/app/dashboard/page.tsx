@@ -70,6 +70,7 @@ export default function DashboardPage() {
       try {
         await assignMachineToUser(uid);
         if (cancelled) return;
+        lastActivityRef.current = Date.now();
         setSessionError(null);
         setWaitingForMachine(false);
         waitingForMachineRef.current = false;
@@ -201,6 +202,9 @@ export default function DashboardPage() {
     try {
       await forceSetStatus("COMPLETED");
       window.location.href = "/summary?manual=1";
+    } catch {
+      endingSessionRef.current = false;
+      setSessionError("สิ้นสุดเซสชันไม่สำเร็จ กรุณาลองใหม่");
     } finally {
       setEnding(false);
     }

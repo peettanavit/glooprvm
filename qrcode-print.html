@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <title>Gloop QR Code — Gloop_01</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: "Helvetica Neue", Arial, sans-serif;
+      background: #f0f0f0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      padding: 20px;
+    }
+
+    .card {
+      background: #ffffff;
+      border-radius: 24px;
+      padding: 40px 48px;
+      text-align: center;
+      width: 340px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.12);
+    }
+
+    .logo {
+      font-size: 28px;
+      font-weight: 800;
+      color: #16a34a;
+      letter-spacing: -0.5px;
+      margin-bottom: 4px;
+    }
+
+    .logo span {
+      color: #22c55e;
+    }
+
+    .tagline {
+      font-size: 12px;
+      color: #6b7280;
+      margin-bottom: 28px;
+      letter-spacing: 0.3px;
+    }
+
+    #qrcode {
+      display: flex;
+      justify-content: center;
+      margin-bottom: 24px;
+    }
+
+    #qrcode canvas,
+    #qrcode img {
+      border-radius: 12px;
+      border: 6px solid #f0fdf4;
+    }
+
+    .instruction {
+      font-size: 15px;
+      font-weight: 600;
+      color: #111827;
+      margin-bottom: 6px;
+    }
+
+    .sub {
+      font-size: 12px;
+      color: #9ca3af;
+      margin-bottom: 20px;
+      line-height: 1.5;
+    }
+
+    .url {
+      font-size: 10px;
+      color: #d1d5db;
+      word-break: break-all;
+    }
+
+    .machine-id {
+      display: inline-block;
+      background: #f0fdf4;
+      color: #16a34a;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 4px 12px;
+      border-radius: 20px;
+      margin-top: 14px;
+      letter-spacing: 0.5px;
+    }
+
+    @media print {
+      body {
+        background: white;
+        min-height: unset;
+        padding: 0;
+      }
+      .card {
+        box-shadow: none;
+        border: 1px solid #e5e7eb;
+        margin: 0 auto;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">gloop<span>.</span></div>
+    <div class="tagline">เครื่องรับคืนขวดอัจฉริยะ</div>
+
+    <div id="qrcode"></div>
+
+    <div class="instruction">แสกนเพื่อเริ่มรีไซเคิล</div>
+    <div class="sub">
+      ใส่ขวดพลาสติก สะสมคะแนน<br>แลกของรางวัลได้ทันที
+    </div>
+    <div class="url">glooprvm.web.app</div>
+    <div class="machine-id">Gloop_01</div>
+
+  </div>
+
+  <script>
+    new QRCode(document.getElementById("qrcode"), {
+      text: "https://glooprvm.web.app",
+      width: 220,
+      height: 220,
+      colorDark: "#15803d",
+      colorLight: "#ffffff",
+      correctLevel: QRCode.CorrectLevel.H,
+    });
+  </script>
+</body>
+</html>

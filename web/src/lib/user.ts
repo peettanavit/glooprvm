@@ -17,9 +17,10 @@ import { db, storage } from "@/lib/firebase";
 
 function generateRedeemCode(): string {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  const bytes = globalThis.crypto.getRandomValues(new Uint8Array(6));
   let code = "GLP-";
   for (let i = 0; i < 6; i++) {
-    code += chars[Math.floor(Math.random() * chars.length)];
+    code += chars[bytes[i] % chars.length];
   }
   return code;
 }

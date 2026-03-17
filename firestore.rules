@@ -15,22 +15,34 @@ service cloud.firestore {
         && request.auth.token.email.matches('^machine-.*@.*$');
     }
 
+    function isAdmin() {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
     match /machines/{machineId} {
       allow read: if isSignedIn();
 
-      // First claim must bind machine ownership to the signed-in user.
+      // First claim must bind machine ownership to the signed-in user (score starts at 0).
       allow create: if isSignedIn()
-        && request.resource.data.current_user == request.auth.uid;
+        && request.resource.data.current_user == request.auth.uid
+        && request.resource.data.session_score == 0;
 
       allow update: if isSignedIn() && (
-        // Active owner can keep updating machine state.
-        resource.data.current_user == request.auth.uid ||
-        // Claim unassigned machine.
-        (resource.data.current_user == "" &&
-          request.resource.data.current_user == request.auth.uid) ||
-        // Reclaim machine from stale inactive state (IDLE/COMPLETED).
-        (!isActiveStatus(resource.data.status) &&
-          request.resource.data.current_user == request.auth.uid)
+        // Active owner can update machine state but cannot inflate session_score.
+        (resource.data.current_user == request.auth.uid
+          && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['session_score'])
+              || request.resource.data.session_score == 0))
+        ||
+        // Claim unassigned machine (score must start at 0).
+        (resource.data.current_user == ""
+          && request.resource.data.current_user == request.auth.uid
+          && request.resource.data.session_score == 0)
+        ||
+        // Reclaim machine from stale inactive state (IDLE/COMPLETED, score must start at 0).
+        (!isActiveStatus(resource.data.status)
+          && request.resource.data.current_user == request.auth.uid
+          && request.resource.data.session_score == 0)
         ||
         // Machine device account can only update runtime machine state fields.
         (isMachineClient()
@@ -56,7 +68,7 @@ service cloud.firestore {
     }
 
     match /logs/{logId} {
-      allow read: if isSignedIn();
+      allow read: if isSignedIn() && (request.auth.uid == resource.data.user_id || isAdmin());
       allow write: if false; // written only by Cloud Functions via Admin SDK
     }
 

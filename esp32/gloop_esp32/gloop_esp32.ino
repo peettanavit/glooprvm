@@ -48,6 +48,10 @@ MachineState machineState;
 volatile bool readyButtonInterrupt = false;
 volatile bool slotSmallInterrupt = false;
 
+bool cameraReady = false;
+unsigned long solenoidOnAt = 0;
+bool solenoidActive = false;
+
 bool isActiveStatus(const String& status) {
   return status == "READY" || status == "PROCESSING" || status == "REJECTED";
 }
@@ -57,9 +61,8 @@ bool isSessionActive(const MachineState& state) {
 }
 
 bool initCamera() {
-  if (!CAMERA_ENABLED) {
-    return false;
-  }
+  if (!CAMERA_ENABLED) return false;
+  if (cameraReady) return true; // already initialized — skip
 
   camera_config_t config;
   config.ledc_channel = LEDC_CHANNEL_0;
@@ -124,7 +127,16 @@ bool initCamera() {
   }
 
   Serial.println("[CAM] ready");
+  cameraReady = true;
   return true;
+}
+
+// Soft reset: deinit + reinit without full power cycle
+bool reinitCamera() {
+  cameraReady = false;
+  esp_camera_deinit();
+  delay(100);
+  return initCamera();
 }
 
 bool uploadFrameToCloudFunction(camera_fb_t* fb, const String& userId, const String& sessionId) {
@@ -534,10 +546,18 @@ void IRAM_ATTR onSlotSmallInterrupt() {
   slotSmallInterrupt = true;
 }
 
-void pulseSolenoid() {
+// Non-blocking solenoid: call startSolenoid() to open, loop() closes it via updateSolenoid()
+void startSolenoid() {
   digitalWrite(SOLENOID_PIN, HIGH);
-  delay(SOLENOID_PULSE_MS);
-  digitalWrite(SOLENOID_PIN, LOW);
+  solenoidOnAt = millis();
+  solenoidActive = true;
+}
+
+void updateSolenoid() {
+  if (solenoidActive && millis() - solenoidOnAt >= SOLENOID_PULSE_MS) {
+    digitalWrite(SOLENOID_PIN, LOW);
+    solenoidActive = false;
+  }
 }
 
 void handleBottleInsert() {
@@ -545,38 +565,39 @@ void handleBottleInsert() {
     bool captured = false;
     bool uploaded = false;
 
-    if (initCamera()) {
-      // warm-up: grab frames so AWB/AEC can settle (~2 s)
-      for (int i = 0; i < 10; i++) {
-        camera_fb_t* w = esp_camera_fb_get();
-        if (w) esp_camera_fb_return(w);
-        delay(200);
-      }
-
-      // Wait for continuous AF to lock (up to 2 s)
+    // Camera is kept alive since setup() — no init/deinit per bottle.
+    // On first call or after a soft reset, cameraReady may be false.
+    if (!cameraReady && !initCamera()) {
+      Serial.println("[RVM] camera unavailable, using local logic");
+    } else {
+      // Continuous AF has been running since setup(), focus is usually locked.
+      // Wait at most 500 ms for confirmation — no warmup needed.
       {
         const unsigned long afStart = millis();
-        while (millis() - afStart < 2000) {
+        while (millis() - afStart < 500) {
           uint8_t st = ov5640.getFWStatus();
           if (st == FW_STATUS_S_FOCUSED) {
             Serial.println("[CAM] AF focused");
             break;
           }
-          delay(100);
+          delay(50);
         }
       }
 
       camera_fb_t* fb = esp_camera_fb_get();
       if (!fb) {
-        Serial.println("[CAM] capture failed");
+        Serial.println("[CAM] capture failed — attempting soft reinit");
+        if (reinitCamera()) fb = esp_camera_fb_get();
+      }
+
+      if (!fb) {
+        Serial.println("[CAM] capture still failed after reinit");
       } else {
         captured = true;
         Serial.printf("[CAM] captured %u bytes\n", fb->len);
         uploaded = uploadFrameToCloudFunction(fb, machineState.currentUser, machineState.sessionId);
         esp_camera_fb_return(fb);
       }
-      esp_camera_deinit();
-      Serial.println("[CAM] deinit");
     }
 
     if (captured && uploaded) {
@@ -598,14 +619,14 @@ void handleBottleInsert() {
       }
 
       if (aiStatus == "PROCESSING") {
-        pulseSolenoid();
+        startSolenoid();
         Serial.println("[RVM] AI accepted -> solenoid open, status PROCESSING");
       } else if (aiStatus == "REJECTED") {
         rejectUntil = millis() + REJECT_HOLD_MS;
         Serial.println("[RVM] AI rejected bottle");
       } else {
         // Timeout: default to accept so user is not blocked
-        pulseSolenoid();
+        startSolenoid();
         firestorePatchStatus("PROCESSING");
         machineState.status = "PROCESSING";
         Serial.println("[RVM] AI timeout, defaulting to accept");
@@ -617,7 +638,7 @@ void handleBottleInsert() {
   }
 
   // No camera or upload failed: accept unconditionally (no AI check)
-  pulseSolenoid();
+  startSolenoid();
   if (firestorePatchStatus("PROCESSING")) {
     machineState.status = "PROCESSING";
     Serial.println("[RVM] bottle accepted (no AI), status->PROCESSING");
@@ -634,24 +655,24 @@ void setupPins() {
   attachInterrupt(digitalPinToInterrupt(SLOT_PIN_SMALL), onSlotSmallInterrupt, FALLING);
 }
 
-}  // namespace
-
 void testCamera() {
   if (!CAMERA_ENABLED) return;
   Serial.println("[CAM] test capture...");
-  if (!initCamera()) {
-    Serial.println("[CAM] init failed");
+  if (!cameraReady) {
+    Serial.println("[CAM] not ready — init failed during setup");
     return;
   }
   camera_fb_t* fb = esp_camera_fb_get();
   if (!fb) {
-    Serial.println("[CAM] capture failed");
+    Serial.println("[CAM] test capture failed");
   } else {
     Serial.printf("[CAM] OK — %u bytes (%dx%d)\n", fb->len, fb->width, fb->height);
     esp_camera_fb_return(fb);
   }
-  esp_camera_deinit();
+  // No deinit — camera stays alive for persistent use
 }
+
+}  // namespace
 
 void setup() {
   Serial.begin(115200);
@@ -660,11 +681,14 @@ void setup() {
 
   secureClient.setCACert(GOOGLE_ROOT_CA);
   setupPins();
-  testCamera();
+  initCamera();  // persistent init — stays on for the lifetime of the device
+  testCamera();  // sanity check (no deinit)
   ensureWiFi();
 }
 
 void loop() {
+  updateSolenoid(); // close solenoid after SOLENOID_PULSE_MS without blocking
+
   if (!ensureWiFi()) {
     delay(50);
     return;

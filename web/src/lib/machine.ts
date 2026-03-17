@@ -8,7 +8,6 @@ import {
   query,
   runTransaction,
   serverTimestamp,
-  setDoc,
   updateDoc,
   where,
   type Timestamp,
@@ -75,7 +74,7 @@ export async function resetMachine(): Promise<void> {
 }
 
 export async function forceSetStatus(status: MachineStatus): Promise<void> {
-  await updateDoc(machineRef, { status });
+  await updateDoc(machineRef, { status, updatedAt: serverTimestamp() });
 }
 
 export async function persistUserSessionScore(

@@ -17,13 +17,17 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [emailTouched, setEmailTouched] = useState(false);
+
+  const isEmailValid = (val: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val);
+  const isEmailInvalid = emailTouched && !isEmailValid(email);
 
   const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError(null);
 
-    if (!email.includes("@") || !email.includes(".")) {
-      setError("รูปแบบอีเมลไม่ถูกต้อง เช่น example@email.com");
+    if (!isEmailValid(email)) {
+      setEmailTouched(true);
       return;
     }
     if (password.length < 6) {
@@ -33,11 +37,11 @@ export default function LoginPage() {
 
     setLoading(true);
     try {
-      await (
-        mode === "login"
-          ? await signInWithEmailAndPassword(auth, email, password)
-          : await createUserWithEmailAndPassword(auth, email, password)
-      );
+      if (mode === "login") {
+        await signInWithEmailAndPassword(auth, email, password);
+      } else {
+        await createUserWithEmailAndPassword(auth, email, password);
+      }
       router.push("/dashboard");
     } catch (err) {
       const code = (err as { code?: string }).code ?? "";
@@ -105,20 +109,25 @@ export default function LoginPage() {
 
             <form onSubmit={onSubmit} noValidate className="flex flex-col gap-4">
               <Input
-                type="text"
+                type="email"
+                inputMode="email"
+                autoComplete="email"
                 label="อีเมล"
-                placeholder="your@email.com"
+                placeholder="example@email.com"
                 value={email}
                 onValueChange={setEmail}
+                onBlur={() => setEmailTouched(true)}
+                isInvalid={isEmailInvalid}
+                errorMessage={isEmailInvalid ? "รูปแบบอีเมลไม่ถูกต้อง เช่น example@email.com" : undefined}
                 variant="bordered"
                 classNames={{ inputWrapper: "border-green-200 hover:border-green-400 focus-within:!border-green-500" }}
-                onInvalid={(e) => e.preventDefault()}
               />
               <Input
                 type="password"
                 label="รหัสผ่าน"
                 value={password}
                 onValueChange={setPassword}
+                autoComplete={mode === "login" ? "current-password" : "new-password"}
                 variant="bordered"
                 classNames={{ inputWrapper: "border-green-200 hover:border-green-400 focus-within:!border-green-500" }}
               />
@@ -130,9 +139,7 @@ export default function LoginPage() {
               )}
 
               <p className="text-xs text-gray-400 text-center">
-                {mode === "login"
-                  ? "หลังเข้าสู่ระบบ เซสชันรับขวดจะเริ่มต้นอัตโนมัติ"
-                  : "หลังสมัครสมาชิก เซสชันรับขวดจะเริ่มต้นอัตโนมัติ"}
+                * หลังเข้าสู่ระบบ เซสชันรับขวดจะเริ่มต้นอัตโนมัติ
               </p>
 
               <Button

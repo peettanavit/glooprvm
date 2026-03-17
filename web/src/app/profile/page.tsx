@@ -91,6 +91,7 @@ export default function ProfilePage() {
   const [showAvatarPicker, setShowAvatarPicker] = useState(false);
   const [selectedPreset, setSelectedPreset] = useState<string | null>(null);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [savingPreset, setSavingPreset] = useState(false);
 
   const [editingNickname, setEditingNickname] = useState(false);
   const [nicknameInput, setNicknameInput] = useState("");
@@ -108,7 +109,7 @@ export default function ProfilePage() {
       if (unsubscribeProfile) { unsubscribeProfile(); unsubscribeProfile = null; }
       if (unsubscribeSessions) { unsubscribeSessions(); unsubscribeSessions = null; }
 
-      if (!user) { router.replace("/login"); return; }
+      if (!user) { if (!cancelled) router.replace("/login"); return; }
 
       setUid(user.uid);
 
@@ -118,7 +119,7 @@ export default function ProfilePage() {
         unsubscribeProfile = subscribeToUserProfile(user.uid, setProfile, () => router.replace("/login"));
         unsubscribeSessions = subscribeToUserSessions(user.uid, setSessions, () => router.replace("/login"));
       } catch {
-        router.replace("/login");
+        if (!cancelled) router.replace("/login");
       }
     });
 
@@ -175,7 +176,7 @@ export default function ProfilePage() {
 
   const handleSavePreset = async () => {
     if (!uid || !selectedPreset) return;
-    setUploadingAvatar(true);
+    setSavingPreset(true);
     try {
       await updateUserProfile(uid, { avatar_preset: selectedPreset, avatar_url: "" });
       setShowAvatarPicker(false);
@@ -186,7 +187,7 @@ export default function ProfilePage() {
         setProfileError("บันทึกไม่สำเร็จ กรุณาลองใหม่");
       }
     } finally {
-      setUploadingAvatar(false);
+      setSavingPreset(false);
     }
   };
 
@@ -365,7 +366,7 @@ export default function ProfilePage() {
             {/* Upload option */}
             <button
               onClick={handlePickerUpload}
-              disabled={uploadingAvatar}
+              disabled={uploadingAvatar || savingPreset}
               className="w-full py-3 rounded-xl border-2 border-dashed border-gray-200 hover:border-green-300 hover:bg-green-50 transition-colors text-sm text-gray-500 hover:text-green-600"
             >
               {uploadingAvatar ? "กำลังอัปโหลด..." : "📁  อัปโหลดรูปของตัวเอง"}
@@ -386,8 +387,8 @@ export default function ProfilePage() {
             <Button variant="flat" onPress={() => setShowAvatarPicker(false)}>ยกเลิก</Button>
             <Button
               color="success"
-              isDisabled={!selectedPreset}
-              isLoading={uploadingAvatar}
+              isDisabled={!selectedPreset || uploadingAvatar}
+              isLoading={savingPreset}
               onPress={handleSavePreset}
             >
               บันทึก

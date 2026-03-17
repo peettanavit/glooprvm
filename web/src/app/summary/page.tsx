@@ -22,6 +22,7 @@ export default function SummaryPage() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
   const savedSessionRef = useRef<string>("");
 
   useEffect(() => {
@@ -81,9 +82,11 @@ export default function SummaryPage() {
               });
           },
           (error) => {
-            if (auth.currentUser) {
-              console.error("Machine listener error:", error);
+            const code = (error as { code?: string }).code ?? "";
+            if (code === "permission-denied" || code === "unauthenticated") {
               router.replace("/login");
+            } else {
+              console.error("Machine listener error:", error);
             }
           },
         );
@@ -103,8 +106,13 @@ export default function SummaryPage() {
   }, [router]);
 
   const onSignOut = async () => {
-    await signOut(auth);
-    router.replace("/login");
+    setSigningOut(true);
+    try {
+      await signOut(auth);
+      router.replace("/login");
+    } finally {
+      setSigningOut(false);
+    }
   };
 
   return (
@@ -153,7 +161,7 @@ export default function SummaryPage() {
           ใส่ขวดอีกครั้ง
         </Button>
 
-        <Button color="default" variant="flat" onPress={onSignOut} className="font-medium">
+        <Button color="default" variant="flat" onPress={onSignOut} isLoading={signingOut} className="font-medium">
           ออกจากระบบ
         </Button>
       </div>
