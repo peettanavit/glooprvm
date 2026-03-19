@@ -1,6 +1,6 @@
 # Gloop RVM — System Sync Log
 
-> Last audited: 2026-03-19
+> Last audited: 2026-03-19 (updated same day — second pass)
 > Auditor: Claude Code (Lead Systems Engineer mode)
 
 ---
@@ -69,11 +69,12 @@
 | `current_user` | string | Web (`assignMachineToUser`) | Firebase Auth UID |
 | `session_id` | string | Web | UUID, generated per session |
 | `session_score` | number | ESP32 (`firestoreSlotEvent`) | Incremented by 1 per accepted bottle |
-| `result` | number | listener.py | **1** = clear / **2** = brown / **3** = green. Only present after AI accepts. |
+| `result` | number | listener.py | **1** = lipo_cap / **2** = cvitt_cap / **3** = m150_cap. Only present after AI accepts. |
+| `slave_restart` | bool | Web (`restartSlave()`) | `true` = Slave polls this and calls `ESP.restart()`, then clears back to `false` |
 | `last_capture.label_storage_path` | string | Cloud Function (Master) | GCS path to label/side image |
 | `last_capture.cap_storage_path` | string | Slave ESP32 upload | GCS path to cap/top image (optional) |
 | `last_capture.path` | string | Cloud Function | Full `gs://` URI (legacy) |
-| `last_capture.storage_path` | string | Cloud Function | Legacy single-cam path (backward-compat) |
+| `last_capture.storage_path` | string | Cloud Function | **Deprecated** — renamed to `label_storage_path`. Still written for backward-compat; listener.py falls back to this if `label_storage_path` is absent. |
 | `last_capture.captured_at` | timestamp | Cloud Function | Server timestamp |
 | `last_capture.valid` | bool | listener.py | `true` if accepted |
 | `last_capture.ai_label` | string | listener.py | label_model top class, e.g. `"lipo_cap"` |
@@ -237,14 +238,17 @@ of fewer dual-cam validations.
 | Responsibility | Master ESP32 | Slave ESP32 |
 |---|---|---|
 | Trigger detection | ✓ (sets `status: "ready"`) | ✗ |
-| Read Firestore status | ✓ (polls every 400 ms) | ✗ |
+| Read Firestore status | ✓ (polls every 400 ms) | ✓ (polls every 500 ms — for `"ready"` edge only) |
 | Trigger solenoid | ✓ (`PROCESSING` → open) | ✗ |
 | Upload image | ✓ (`label_storage_path`) | ✓ (`cap_storage_path`) |
 | Score increment | ✓ (slot sensor) | ✗ |
+| Remote restart | ✗ | ✓ (reads `slave_restart` flag, calls `ESP.restart()`) |
 
 ---
 
 ## 9. Changes Made During This Audit
+
+### Pass 1 — System sync + AI integration
 
 | File | Change | Reason |
 |---|---|---|
@@ -253,6 +257,18 @@ of fewer dual-cam validations.
 | `functions/index.js` | Added `"COMPLETED"` to `resetStaleSessions` query | Machine stuck in COMPLETED (browser closed on summary page) was never auto-reset |
 | `ai_server/.env.example` | Added `AI_CONFIDENCE_THRESHOLD=0.5` | Env var existed in listener.py but was undocumented |
 | `ai_server/requirements.txt` | Added `google-cloud-firestore>=2.14.0`; added comments | listener.py imports from it directly; Flask labeled as server.py-only |
+
+### Pass 2 — Dual ESP32-S3 firmware split + admin remote restart
+
+| File | Change | Reason |
+|---|---|---|
+| `functions/index.js` | `last_capture.storage_path` → `last_capture.label_storage_path` | listener.py reads `label_storage_path` as the canonical field; old name was ambiguous |
+| `esp32/Master_ESP32/Master_ESP32.ino` | Renamed from `gloop_esp32/gloop_esp32.ino` into own folder | Clearer separation; board is ESP32-S3, not ESP32-CAM |
+| `esp32/Slave_ESP32/Slave_ESP32.ino` | New firmware — cap camera only | Polls `status=="ready"`, uploads to Storage REST API, writes `cap_storage_path` via Firestore updateMask |
+| `esp32/config_slave.h` / `config_slave.example.h` | New config files for Slave board | Same Firebase account as Master; same camera pins; no solenoid/sensor pins |
+| `web/src/lib/machine.ts` | Added `restartSlave()` | Sets `slave_restart: true` in Firestore to trigger remote ESP.restart() on Slave |
+| `web/src/app/admin/page.tsx` | Added "Restart Slave" button (warning color) next to "Reset Machine" | Allows admin to remotely restart Slave without physical access |
+| `Slave_ESP32.ino` | Reads `slave_restart` on every poll; clears flag then `ESP.restart()` | Enables remote restart from admin web UI |
 
 ---
 
@@ -327,21 +343,36 @@ Expected startup output:
 
 ### Step 7 — Verify end-to-end (manual test)
 1. Open Firebase Console → Firestore → `machines/Gloop_01`
-2. Manually set `status = "ready"` and ensure `last_capture.storage_path` points to a real image in Storage
+2. Manually set `status = "ready"` and ensure `last_capture.label_storage_path` points to a real image in Storage
 3. Watch listener.py logs — should see: `claimed → starting AI pipeline` → `[YOLO] label=...` → `status=PROCESSING`
-4. Confirm Firestore shows `status: "PROCESSING"` and `result: 1` (or 2/3)
+4. Confirm Firestore shows `status: "PROCESSING"` and `result: 1` (lipo_cap) / `2` (cvitt_cap) / `3` (m150_cap)
 
 ---
 
 ## 10. System Health Checklist (Demo Day)
 
+### Python AI Listener
 - [ ] `listener.py` running, shows "Listener active"
-- [ ] Model class names confirmed to match `_LABEL_TO_RESULT`
-- [ ] ESP32 Serial Monitor shows `[Auth] machine signed in`
-- [ ] Test bottle: ESP32 shows `[CAM] upload ok` → `[RVM] waiting for AI result...`
-- [ ] listener.py shows `[YOLO] label=clear(0.87) cap=cap` → `status=PROCESSING`
-- [ ] ESP32 shows `[RVM] AI accepted -> solenoid open`
+- [ ] Model class names confirmed to match `_LABEL_TO_RESULT` (`lipo_cap`→1, `cvitt_cap`→2, `m150_cap`→3)
+
+### Master ESP32-S3
+- [ ] Serial Monitor shows `[Auth] machine signed in`
+- [ ] Test bottle: Master shows `[CAM] upload ok` → `[RVM] waiting for AI result...`
+- [ ] listener.py shows `[YOLO] label=lipo_cap(0.87)` → `status=PROCESSING`
+- [ ] Master shows `[RVM] AI accepted -> solenoid open`
 - [ ] Solenoid physically opens
-- [ ] ESP32 shows `[Slot] SMALL triggered` after bottle drops
+- [ ] Master shows `[Slot] SMALL triggered` after bottle drops
 - [ ] Firebase Console: `session_score` incremented, `result: 1` present
-- [ ] Web dashboard shows bottle in sorting history table with correct label
+
+### Slave ESP32-S3
+- [ ] Serial Monitor shows `[Auth] slave signed in`
+- [ ] When bottle inserted: Slave shows `[Slave] status=ready detected — capturing cap image`
+- [ ] Slave shows `[Storage] cap uploaded: captures/Gloop_01/...`
+- [ ] Slave shows `[Firestore] cap_storage_path written`
+- [ ] Firebase Console: `last_capture.cap_storage_path` present before listener claims
+- [ ] listener.py shows `dual_cam=true` in logs when both images arrive in time
+
+### Web + Admin
+- [ ] Dashboard shows bottle in sorting history table with correct label
+- [ ] Admin page `/admin` shows "Reset Machine" and "Restart Slave" buttons
+- [ ] "Restart Slave" button sets `slave_restart: true` in Firestore; Slave restarts within 500 ms

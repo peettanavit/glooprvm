@@ -1,6 +1,6 @@
 # Gloop RVM — Technical Handover Document
 
-> Last updated: 2026-03-19
+> Last updated: 2026-03-19 (final — all firmware and web features complete)
 > Architecture: Dual ESP32-S3 (Master / Slave) + Python AI Listener + Firebase
 
 ---
@@ -79,7 +79,8 @@
 | `current_user` | string | Web | Firebase Auth UID of active user |
 | `session_id` | string | Web | UUID, new per session |
 | `session_score` | number | Master ESP32 | Increments by 1 per accepted bottle |
-| `result` | number | listener.py | `1` / `2` / `3` — written on PROCESSING only |
+| `result` | number | listener.py | `1`=lipo_cap / `2`=cvitt_cap / `3`=m150_cap — written on PROCESSING only |
+| `slave_restart` | bool | Web (`restartSlave()`) | Admin sets `true` → Slave detects on next poll, clears flag, calls `ESP.restart()` |
 | `updatedAt` | timestamp | All layers | Server timestamp |
 
 ### `last_capture` sub-map (new dual-cam fields)
@@ -213,10 +214,9 @@ than 10 minutes back to `IDLE`.
 
 ---
 
-## 6. Pending Firmware Tasks
+## 6. Firmware & Feature Status
 
-These changes are needed in the ESP32 `.ino` / upload logic to match the Python service.
-The Python side is already ready for them.
+All firmware and web features are complete and pushed to `main`.
 
 ### Master ESP32 (`esp32/Master_ESP32/Master_ESP32.ino`)
 
@@ -250,9 +250,12 @@ The Python side is already ready for them.
   Upload typically arrives within 0–1.5 s of the Master triggering — well within
   the `CAP_WAIT_SECONDS` window.
 
-- [x] **Slave credentials:** separate Firebase Auth account.
-  Create: `machine-slave-gloop01@yourdomain.com` in Firebase Auth Console.
-  Add credentials to `esp32/config_slave.h` (copy from `config_slave.example.h`).
+- [x] **Slave credentials:** uses the **same Firebase Auth account as the Master**.
+  No separate account needed. Credentials in `esp32/config_slave.h` (copy from `config_slave.example.h`).
+
+- [x] **Remote restart from admin web UI.**
+  Admin presses "Restart Slave" on `/admin` → `restartSlave()` sets `slave_restart: true` →
+  Slave reads flag on next 500 ms poll → clears it → `ESP.restart()`.
 
 ---
 
@@ -286,7 +289,8 @@ glooprvm/
 ├── web/src/
 │   ├── app/dashboard/       ← Live machine status + sorting history
 │   ├── app/summary/         ← Session end + score save
-│   ├── lib/machine.ts       ← Firestore reads/writes (assignMachine, subscribeToMachine)
+│   ├── app/admin/           ← Admin panel: Reset Machine + Restart Slave buttons
+│   ├── lib/machine.ts       ← Firestore reads/writes (assignMachine, resetMachine, restartSlave)
 │   └── types/machine.ts     ← MachineStatus type: IDLE|READY|PROCESSING|REJECTED|COMPLETED
 │
 ├── SYSTEM_SYNC_LOG.md       ← Full field reference + state machine + setup guide
