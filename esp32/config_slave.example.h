@@ -21,9 +21,6 @@
 // Must match the Master's MACHINE_ID — both cameras serve the same machine.
 #define MACHINE_ID "Gloop_01"
 
-// Reset button pin — press to ESP.restart()
-#define RESET_BUTTON_PIN 47
-
 // Camera pin map (Freenove ESP32-S3 WROOM with OV5640)
 // These must match the physical wiring on the Slave board.
 #define CAM_PIN_PWDN    -1
