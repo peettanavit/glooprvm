@@ -73,6 +73,13 @@ export async function resetMachine(): Promise<void> {
   });
 }
 
+export async function restartSlave(): Promise<void> {
+  await updateDoc(machineRef, {
+    slave_restart: true,
+    updatedAt: serverTimestamp(),
+  });
+}
+
 export async function forceSetStatus(status: MachineStatus): Promise<void> {
   await updateDoc(machineRef, { status, updatedAt: serverTimestamp() });
 }

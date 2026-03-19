@@ -16,6 +16,7 @@ import { doc, getDoc } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import {
   resetMachine,
+  restartSlave,
   subscribeToMachine,
   subscribeToSortingLogs,
   type SortingLog,
@@ -52,6 +53,8 @@ export default function AdminPage() {
   const [logs, setLogs] = useState<SortingLog[]>([]);
   const [resetting, setResetting] = useState(false);
   const [resetError, setResetError] = useState<string | null>(null);
+  const [restartingslave, setRestartingSlave] = useState(false);
+  const [restartSlaveError, setRestartSlaveError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -111,6 +114,22 @@ export default function AdminPage() {
     }
   };
 
+  const handleRestartSlave = async () => {
+    setRestartingSlave(true);
+    setRestartSlaveError(null);
+    try {
+      await restartSlave();
+    } catch (err) {
+      if (err instanceof Error) {
+        setRestartSlaveError(err.message);
+      } else {
+        setRestartSlaveError("เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง");
+      }
+    } finally {
+      setRestartingSlave(false);
+    }
+  };
+
   return (
     <main className="min-h-screen flex items-center justify-center px-4 py-10">
       <div className="w-full max-w-lg flex flex-col gap-4">
@@ -155,15 +174,32 @@ export default function AdminPage() {
               </div>
             )}
 
-            <Button
-              color="danger"
-              variant="flat"
-              className="mt-4 w-full font-medium"
-              isLoading={resetting}
-              onPress={handleResetMachine}
-            >
-              Reset Machine
-            </Button>
+            {restartSlaveError && (
+              <div className="mt-3 bg-orange-50 border border-orange-200 rounded-xl px-4 py-3">
+                <p className="text-orange-600 text-sm">{restartSlaveError}</p>
+              </div>
+            )}
+
+            <div className="mt-4 flex gap-2">
+              <Button
+                color="danger"
+                variant="flat"
+                className="flex-1 font-medium"
+                isLoading={resetting}
+                onPress={handleResetMachine}
+              >
+                Reset Machine
+              </Button>
+              <Button
+                color="warning"
+                variant="flat"
+                className="flex-1 font-medium"
+                isLoading={restartingslave}
+                onPress={handleRestartSlave}
+              >
+                Restart Slave
+              </Button>
+            </div>
           </CardBody>
         </Card>
 

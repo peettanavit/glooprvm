@@ -261,6 +261,7 @@ bool ensureAuth() {
 struct SlaveState {
   String status;
   String sessionId;
+  bool slaveRestart = false;
   bool valid = false;
 };
 
@@ -299,8 +300,37 @@ SlaveState firestoreGetState() {
   if (fields["session_id"]["stringValue"].is<const char*>()) {
     out.sessionId = fields["session_id"]["stringValue"].as<const char*>();
   }
+  if (fields["slave_restart"]["booleanValue"].is<bool>()) {
+    out.slaveRestart = fields["slave_restart"]["booleanValue"].as<bool>();
+  }
   out.valid = true;
   return out;
+}
+
+bool firestoreClearSlaveRestart() {
+  const String commitUrl = String("https://firestore.googleapis.com/v1/projects/") +
+                           FIREBASE_PROJECT_ID +
+                           "/databases/(default)/documents:commit";
+  const String docPath = String("projects/") + FIREBASE_PROJECT_ID +
+                         "/databases/(default)/documents/machines/" + MACHINE_ID;
+
+  DynamicJsonDocument payload(512);
+  JsonObject update = payload["writes"][0]["update"].to<JsonObject>();
+  update["name"] = docPath;
+  update["fields"]["slave_restart"]["booleanValue"] = false;
+  payload["writes"][0]["updateMask"]["fieldPaths"][0] = "slave_restart";
+
+  String payloadText;
+  serializeJson(payload, payloadText);
+
+  HTTPClient http;
+  http.setTimeout(8000);
+  http.begin(secureClient, commitUrl);
+  http.addHeader("Authorization", String("Bearer ") + idToken);
+  http.addHeader("Content-Type", "application/json");
+  int code = http.POST(payloadText);
+  http.end();
+  return (code >= 200 && code < 300);
 }
 
 // ── Upload cap JPEG to Firebase Storage via REST API ─────────────────────────
@@ -458,6 +488,13 @@ void loop() {
 
   SlaveState state = firestoreGetState();
   if (!state.valid) { delay(100); return; }
+
+  if (state.slaveRestart) {
+    Serial.println("[Slave] restart requested from admin — restarting...");
+    firestoreClearSlaveRestart();
+    delay(200);
+    ESP.restart();
+  }
 
   const bool isReady = (state.status == "ready");
 
