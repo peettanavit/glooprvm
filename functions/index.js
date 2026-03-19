@@ -133,7 +133,7 @@ exports.uploadBottleImage = onRequest(
         status: "ready",
         last_capture: {
           path: gsUri,
-          storage_path: storagePath,
+          label_storage_path: storagePath,
           captured_at: FieldValue.serverTimestamp(),
         },
         updatedAt: FieldValue.serverTimestamp(),

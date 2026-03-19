@@ -31,4 +31,5 @@ edge/__pycache__/
 
 # ESP32
 esp32/config.h
+esp32/config_slave.h
 

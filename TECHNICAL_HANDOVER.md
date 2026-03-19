@@ -1,7 +1,7 @@
 # Gloop RVM — Technical Handover Document
 
 > Last updated: 2026-03-19
-> Architecture: Dual ESP32-CAM (Master / Slave) + Python AI Listener + Firebase
+> Architecture: Dual ESP32-S3 (Master / Slave) + Python AI Listener + Firebase
 
 ---
 
@@ -218,63 +218,41 @@ than 10 minutes back to `IDLE`.
 These changes are needed in the ESP32 `.ino` / upload logic to match the Python service.
 The Python side is already ready for them.
 
-### Master ESP32 (`gloop_esp32.ino` / `uploadFrameToCloudFunction`)
+### Master ESP32 (`esp32/Master_ESP32/Master_ESP32.ino`)
 
-- [ ] **Rename the upload field written to Firestore.**
-  The Cloud Function currently sets `last_capture.storage_path` (legacy).
-  Update it to set `last_capture.label_storage_path` so listener.py reads
-  the correct field without falling back to the legacy name.
+- [x] **Renamed upload field in `functions/index.js`.**
+  Cloud Function now sets `last_capture.label_storage_path` (was `storage_path`).
+  `listener.py` reads this field directly; legacy fallback to `storage_path` is
+  still in place for any existing single-cam data.
 
-  In `functions/index.js` change:
-  ```js
-  // current
-  last_capture: {
-    path: gsUri,
-    storage_path: storagePath,
-    captured_at: FieldValue.serverTimestamp(),
-  }
+- [x] **Master is the only device calling `firestoreSlotEvent`.**
+  `SLOT_PIN_SMALL` interrupt and score increment are in `Master_ESP32.ino` only.
+  Slave firmware has no GPIO output logic.
 
-  // target
-  last_capture: {
-    path: gsUri,
-    label_storage_path: storagePath,   // ← rename this field
-    captured_at: FieldValue.serverTimestamp(),
-  }
-  ```
-
-- [ ] **Verify the Master is the only device calling `firestoreSlotEvent`.**
-  Confirm `SLOT_PIN_SMALL` interrupt and score increment are on the Master only.
-
-- [ ] **No solenoid logic changes needed.**
+- [x] **No solenoid logic changes needed.**
   The Master already polls for `status == "PROCESSING"` and calls `startSolenoid()`.
-  This is correct and unchanged.
 
-### Slave ESP32 (new firmware — not yet written)
+### Slave ESP32 (`esp32/Slave_ESP32/Slave_ESP32.ino`)
 
-- [ ] **Create a minimal sketch** that:
-  1. Connects to WiFi
-  2. Captures a JPEG from the top/cap camera
-  3. Uploads it to Firebase Storage at path:
+- [x] **Firmware created.** Minimal sketch that:
+  1. Connects to WiFi (same SSID as Master)
+  2. Signs in to Firebase Auth with `SLAVE_MACHINE_EMAIL` / `SLAVE_MACHINE_PASSWORD`
+  3. Polls Firestore every 500 ms for `status == "ready"` (edge-detect — triggers once per event)
+  4. On "ready" edge: captures JPEG from cap camera
+  5. Uploads to Firebase Storage REST API at:
      `captures/{MACHINE_ID}/{sessionId}/{timestamp}_cap.jpg`
-  4. Writes the path to Firestore using dot notation:
-     ```
-     PATCH machines/{MACHINE_ID}
-     Body: { "last_capture.cap_storage_path": "<path>" }
-     ```
-  5. Does **nothing else** — no status reads, no solenoid, no score tracking.
+  6. Writes `last_capture.cap_storage_path` via Firestore commit endpoint with
+     `updateMask.fieldPaths = ["last_capture.cap_storage_path"]` — other fields untouched
+  7. Does **nothing else** — no solenoid, no slot sensor, no score tracking
 
-- [ ] **Trigger the Slave capture at the right moment.**
-  The Slave should take its photo at approximately the same time as the Master
-  (within ~500 ms). Options:
-  - Hardware sync wire from Master to Slave (trigger pin)
-  - Both devices react to the same physical sensor event independently
-  - Master sends a UDP broadcast on the local network
+- [x] **Slave trigger mechanism:** polls Firestore for `status == "ready"`.
+  The Slave sees the same Cloud Function write that listener.py watches.
+  Upload typically arrives within 0–1.5 s of the Master triggering — well within
+  the `CAP_WAIT_SECONDS` window.
 
-- [ ] **Authentication for Slave Firestore write.**
-  The Slave needs its own Firebase machine account (email + password) with
-  Firestore write permission for the `machines` collection.
-  Create a new account: `machine-slave-gloop01@yourdomain.com`
-  and add credentials to the Slave's `config.h`.
+- [x] **Slave credentials:** separate Firebase Auth account.
+  Create: `machine-slave-gloop01@yourdomain.com` in Firebase Auth Console.
+  Add credentials to `esp32/config_slave.h` (copy from `config_slave.example.h`).
 
 ---
 
@@ -292,11 +270,15 @@ glooprvm/
 │   └── .env.example         ← Environment variable template
 │
 ├── esp32/
-│   ├── gloop_esp32/
-│   │   └── gloop_esp32.ino  ← Master ESP32 firmware (complete)
-│   ├── config.h             ← Live credentials (gitignored)
-│   ├── config.example.h     ← Credential template (tracked)
-│   └── firebase_cert.h      ← Google root CA cert
+│   ├── Master_ESP32/
+│   │   └── Master_ESP32.ino ← Master ESP32-S3 firmware (label cam + solenoid + scoring)
+│   ├── Slave_ESP32/
+│   │   └── Slave_ESP32.ino  ← Slave ESP32-S3 firmware (cap cam upload only)
+│   ├── config.h             ← Master live credentials (gitignored)
+│   ├── config.example.h     ← Master credential template (tracked)
+│   ├── config_slave.h       ← Slave live credentials (gitignored)
+│   ├── config_slave.example.h ← Slave credential template (tracked)
+│   └── firebase_cert.h      ← Google root CA cert (shared by both boards)
 │
 ├── functions/
 │   └── index.js             ← Cloud Functions: uploadBottleImage + resetStaleSessions
