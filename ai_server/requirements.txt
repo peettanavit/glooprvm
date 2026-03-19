@@ -1,0 +1,14 @@
+# ── AI inference ──────────────────────────────────────────────────────────────
+ultralytics>=8.0.0          # YOLO model loader + inference (pulls in torch/torchvision)
+opencv-python-headless>=4.8.0  # image decode/encode — headless = no GUI dep (servers/CI)
+numpy>=1.24.0
+
+# ── Firebase / Firestore ───────────────────────────────────────────────────────
+firebase-admin>=6.5.0       # Auth, Firestore, Storage admin access
+google-cloud-firestore>=2.14.0  # explicit dep — listener.py imports transactional directly
+
+# ── HTTP server (server.py only — not needed for listener.py) ─────────────────
+flask>=3.0.0
+
+# ── Utilities ─────────────────────────────────────────────────────────────────
+python-dotenv>=1.0.0        # loads .env into os.environ

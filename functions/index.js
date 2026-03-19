@@ -4,18 +4,20 @@ const { defineSecret } = require("firebase-functions/params");
 const { initializeApp } = require("firebase-admin/app");
 const { getStorage } = require("firebase-admin/storage");
 const { getFirestore, FieldValue } = require("firebase-admin/firestore");
-const { GoogleGenerativeAI } = require("@google/generative-ai");
 
 initializeApp();
 
 const db = getFirestore();
-const geminiApiKey = defineSecret("GEMINI_API_KEY");
 const uploadApiKey = defineSecret("UPLOAD_API_KEY");
 
 const MAX_IMAGE_BYTES = 2 * 1024 * 1024; // 2 MB limit
 
 /**
  * HTTP Cloud Function — called by ESP32 when a bottle is detected.
+ *
+ * Saves the JPEG to Firebase Storage and sets status: "ready" in Firestore.
+ * Classification is handled by the external Python AI listener (listener.py),
+ * which watches for status: "ready" and writes the result back.
  *
  * Request:
  *   POST  (raw JPEG body)
@@ -27,13 +29,13 @@ const MAX_IMAGE_BYTES = 2 * 1024 * 1024; // 2 MB limit
  *     X-Session-Id:  <sessionId>      (optional)
  *
  * Response (JSON):
- *   { status: "PROCESSING"|"REJECTED", valid: bool, path: string }
+ *   { status: "ready", path: string }
  */
 exports.uploadBottleImage = onRequest(
   {
-    timeoutSeconds: 60,
-    memory: "512MiB",
-    secrets: [geminiApiKey, uploadApiKey],
+    timeoutSeconds: 30,
+    memory: "256MiB",
+    secrets: [uploadApiKey],
     // Allow unauthenticated at IAM level; auth is enforced via X-Api-Key header
     invoker: "public",
   },
@@ -124,124 +126,29 @@ exports.uploadBottleImage = onRequest(
       const gsUri = `gs://${bucket.name}/${storagePath}`;
       console.log(`[Storage] saved: ${gsUri}`);
 
-      // ── 2. Classify with Gemini Vision ────────────────────────────────────
-      let isValid = true;
-      let classifyReason = "no_api_key";
-      let classifyLabel = "unknown";
-
-      const apiKey = geminiApiKey.value();
-      if (apiKey) {
-        try {
-          const genAI = new GoogleGenerativeAI(apiKey);
-          const model = genAI.getGenerativeModel({ model: process.env.GEMINI_MODEL || "gemini-1.5-flash" });
-
-          const prompt = `You are a smart recycling machine (Gloop RVM). Examine this image and identify the bottle brand by reading the CAP logo and SIDE LABEL text/design.
-
-Accepted bottles (valid = true) — identify by brand markings:
-1. "m150"      — M-150 energy drink. Look for: "M-150" or "M150" text on the cap or label. Red/yellow label design with the M-150 logo.
-2. "cvitt"     — C-Vitt vitamin drink. Look for: "C-vitt" or "C-Vitt" text on the cap or label. Orange/white label with vitamin C branding.
-3. "lipoviton" — Lipoviton energy drink (ลิโพวิตัน). Look for: "Lipoviton" text on the cap or label. Yellow/green label design.
-
-Classification priority:
-- First try to read the brand name on the CAP (top of bottle).
-- If cap is not visible, read the SIDE LABEL text or logo.
-- If the brand matches one of the 3 above → valid = true.
-- If the brand is unrecognizable or different → valid = false.
-
-NOT accepted (valid = false):
-- Any bottle whose label/cap does not match M-150, C-Vitt, or Lipoviton
-- Plastic or PET bottles
-- Aluminum or tin cans
-- Cardboard, paper, tetra pak
-- Blurry or unclear images where brand cannot be determined
-
-Reply ONLY with a JSON object — no markdown, no extra text:
-{"valid": true, "label": "m150", "reason": "M-150 text visible on cap and red label"}
-or
-{"valid": false, "label": "other_glass", "reason": "label shows different brand, not accepted"}
-
-The label must be one of: "m150", "cvitt", "lipoviton", "can", "pet_bottle", "other_glass", "cardboard", "unknown".`;
-
-          const imageData = {
-            inlineData: {
-              data: imageBuffer.toString("base64"),
-              mimeType: "image/jpeg",
-            },
-          };
-
-          const result = await model.generateContent([prompt, imageData]);
-          const text = result.response.text().trim();
-          console.log(`[Gemini] raw response: ${text}`);
-
-          // Try parsing the full text first, then extract the first {...} block.
-          let parsed = null;
-          try {
-            parsed = JSON.parse(text);
-          } catch {
-            const jsonMatch = text.match(/\{[^{}]*\}/);
-            if (jsonMatch) {
-              try { parsed = JSON.parse(jsonMatch[0]); } catch { /* leave null */ }
-            }
-          }
-
-          if (parsed !== null && typeof parsed === "object" && "valid" in parsed) {
-            isValid = parsed.valid === true;
-            classifyReason = parsed.reason || "classified";
-            classifyLabel = parsed.label || "unknown";
-          } else {
-            console.warn("[Gemini] could not parse JSON, defaulting to reject");
-            isValid = false;
-            classifyReason = "parse_error_reject";
-            classifyLabel = "unknown";
-          }
-        } catch (geminiErr) {
-          console.error("[Gemini] classification error:", geminiErr);
-          classifyReason = "gemini_error_accept";
-        }
-      }
-
-      console.log(`[Classify] valid=${isValid} label=${classifyLabel} reason=${classifyReason}`);
-
-      // ── 3. Update Firestore ───────────────────────────────────────────────
-      const newStatus = isValid ? "PROCESSING" : "REJECTED";
-
+      // ── 2. Signal the Python AI listener ─────────────────────────────────
+      // Classification is done externally by listener.py, which watches for
+      // status: "ready" and writes valid/label/reason back to Firestore.
       await machineRef.update({
-        status: newStatus,
+        status: "ready",
         last_capture: {
           path: gsUri,
           storage_path: storagePath,
-          valid: isValid,
-          label: classifyLabel,
-          reason: classifyReason,
           captured_at: FieldValue.serverTimestamp(),
         },
         updatedAt: FieldValue.serverTimestamp(),
       });
 
-      console.log(`[Firestore] machine ${machineId} status → ${newStatus}`);
-
-      // ── 4. Write sorting log (valid bottles only) ──────────────────────────
-      if (isValid) {
-        await db.collection("logs").add({
-          machine_id: machineId,
-          bottle_type: classifyLabel,
-          user_id: userId,
-          session_id: sessionId,
-          sorted_at: FieldValue.serverTimestamp(),
-        });
-        console.log(`[Logs] sorted: ${classifyLabel} by ${userId || "unknown"}`);
-      }
+      console.log(`[Firestore] machine ${machineId} status → ready`);
 
       res.status(200).json({
-        status: newStatus,
-        valid: isValid,
-        label: classifyLabel,
+        status: "ready",
         path: storagePath,
       });
     } catch (err) {
       console.error("[uploadBottleImage] error:", err);
 
-      // Fallback: default to PROCESSING so user is not blocked
+      // Fallback: default to PROCESSING so the ESP32 / web are not blocked
       try {
         await machineRef.update({
           status: "PROCESSING",
@@ -266,7 +173,7 @@ exports.resetStaleSessions = onSchedule("every 5 minutes", async () => {
   const cutoff = new Date(Date.now() - TIMEOUT_MS);
 
   const snapshot = await db.collection("machines")
-    .where("status", "in", ["READY", "PROCESSING", "REJECTED"])
+    .where("status", "in", ["READY", "PROCESSING", "REJECTED", "COMPLETED", "ready", "processing_ai"])
     .get();
 
   if (snapshot.empty) {

@@ -17,8 +17,13 @@ web/node_modules/
 web/.next/
 web/out/
 
-# Python / AI server
-ai_server/
+# Python / AI server — track source, ignore secrets + large binaries
+ai_server/.env
+ai_server/.venv/
+ai_server/__pycache__/
+ai_server/*.json
+ai_server/models/
+ai_server/training_results/
 edge/.venv/
 edge/.venv2/
 edge/__pycache__/

@@ -4,29 +4,36 @@
 #define WIFI_SSID "YOUR_WIFI_SSID"
 #define WIFI_PASSWORD "YOUR_WIFI_PASSWORD"
 
-// Firebase Web API config (same project used by web app)
+// Firebase Web API config (same project — ขอจากเจ้าของโปรเจกต์)
 #define FIREBASE_API_KEY "YOUR_FIREBASE_WEB_API_KEY"
-#define FIREBASE_PROJECT_ID "YOUR_FIREBASE_PROJECT_ID"
+#define FIREBASE_PROJECT_ID "glooprvm"
 
 // Dedicated machine account in Firebase Authentication
-#define MACHINE_EMAIL "machine-gloop01@example.com"
-#define MACHINE_PASSWORD "CHANGE_ME_MACHINE_PASSWORD"
+// สร้าง account ใหม่ใน Firebase Auth แล้วใส่ที่นี่
+#define MACHINE_EMAIL "machine-gloop02@example.com"
+#define MACHINE_PASSWORD "YOUR_MACHINE_PASSWORD"
 
 // Firestore machine document id: /machines/{MACHINE_ID}
 #define MACHINE_ID "Gloop_01"
 
-// GPIO wiring
-#define SOLENOID_PIN    YOUR_SOLENOID_PIN
-#define SENSOR_PIN      YOUR_SENSOR_PIN
-#define READY_BUTTON_PIN YOUR_READY_BUTTON_PIN
-#define SLOT_PIN_SMALL  YOUR_SLOT_PIN_SMALL
-#define SENSOR_ACTIVE_HIGH true
+// GPIO wiring — ตามวงจรที่ต่อจริง
+#define SOLENOID_PIN    38
+#define SENSOR_PIN      1
+#define SENSOR_ACTIVE_HIGH false
+#define READY_BUTTON_PIN 47
+#define SLOT_PIN_SMALL  14
 
-// Cloud Function URL
-#define CF_UPLOAD_URL "https://us-central1-glooprvm.cloudfunctions.net/uploadBottleImage"
-
-// Camera (Freenove ESP32-S3 WROOM with OV5640)
+// Camera + upload endpoint
+// ใช้ Cloud Function URL นี้ได้เลย (ไม่ต้องแก้)
 #define CAMERA_ENABLED true
+#define CF_UPLOAD_URL "https://us-central1-glooprvm.cloudfunctions.net/uploadBottleImage"
+#define CF_UPLOAD_API_KEY "YOUR_UPLOAD_API_KEY"
+
+// Simulation mode (ปิดไว้สำหรับการใช้งานจริง)
+#define DEV_SIMULATION false
+#define SIM_BOTTLE_PROBABILITY 0.25f
+
+// Camera pin map (Freenove ESP32-S3 WROOM with OV5640)
 #define CAM_PIN_PWDN    -1
 #define CAM_PIN_RESET   -1
 #define CAM_PIN_XCLK    15
@@ -40,6 +47,8 @@
 #define CAM_PIN_Y4       8
 #define CAM_PIN_Y3       9
 #define CAM_PIN_Y2      11
+#define CAM_PIN_Y1      -1
+#define CAM_PIN_Y0      -1
 #define CAM_PIN_VSYNC    6
 #define CAM_PIN_HREF     7
 #define CAM_PIN_PCLK    13
