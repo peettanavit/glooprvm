@@ -44,6 +44,7 @@ bool wifiBeginInProgress = false;
 bool timeInitialized     = false;
 bool cameraReady         = false;
 bool lastStatusWasReady  = false; // edge-detect: trigger only once per "ready" event
+volatile bool resetButtonPressed = false;
 
 String idToken;
 String storedRefreshToken;
@@ -118,6 +119,10 @@ bool initCamera() {
   Serial.println("[CAM] ready");
   cameraReady = true;
   return true;
+}
+
+void IRAM_ATTR onResetButton() {
+  resetButtonPressed = true;
 }
 
 // ── URL-encode storage path (/ → %2F) for Firebase Storage REST API ──────────
@@ -443,11 +448,19 @@ void setup() {
   Serial.println("Gloop Slave ESP32-S3 starting...");
 
   secureClient.setCACert(GOOGLE_ROOT_CA);
+  pinMode(RESET_BUTTON_PIN, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(RESET_BUTTON_PIN), onResetButton, FALLING);
   initCamera(); // persistent init — stays on for the lifetime of the device
   ensureWiFi();
 }
 
 void loop() {
+  if (resetButtonPressed) {
+    Serial.println("[Slave] reset button — restarting...");
+    delay(100);
+    ESP.restart();
+  }
+
   if (!ensureWiFi()) { delay(50); return; }
   if (!ensureTime()) { delay(400); return; }
   if (!ensureAuth()) { delay(400); return; }
