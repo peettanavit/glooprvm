@@ -60,7 +60,9 @@ struct MachineState {
 MachineState machineState;
 
 volatile bool readyButtonInterrupt = false;
-volatile bool slotSmallInterrupt = false;
+volatile bool slotSmallInterrupt  = false;
+volatile bool slotMediumInterrupt = false;
+volatile bool slotLargeInterrupt  = false;
 
 bool cameraReady = false;
 unsigned long solenoidOnAt = 0;
@@ -102,7 +104,7 @@ bool initCamera() {
   config.pixel_format = PIXFORMAT_JPEG;
   config.grab_mode = CAMERA_GRAB_LATEST;
   config.fb_location = CAMERA_FB_IN_PSRAM;
-  config.jpeg_quality = 12;
+  config.jpeg_quality = 5;
   config.fb_count = 2;
 
   esp_err_t err = esp_camera_init(&config);
@@ -127,6 +129,11 @@ bool initCamera() {
   s->set_brightness(s, 0);
   s->set_saturation(s, 0);
   s->set_sharpness(s, 2);
+  s->set_aec2(s, 1);          // enhanced AEC algorithm
+  s->set_ae_level(s, 0);      // AEC target level (0 = neutral)
+  s->set_gainceiling(s, GAINCEILING_2X);   // cap max gain → reduce overexposure noise
+  s->set_lenc(s, 1);          // lens correction
+  s->set_raw_gma(s, 1);       // gamma correction
 
   ov5640.start(s);
   if (ov5640.focusInit() == 0) {
@@ -556,9 +563,9 @@ void IRAM_ATTR onReadyButtonInterrupt() {
   readyButtonInterrupt = true;
 }
 
-void IRAM_ATTR onSlotSmallInterrupt() {
-  slotSmallInterrupt = true;
-}
+void IRAM_ATTR onSlotSmallInterrupt()  { slotSmallInterrupt  = true; }
+void IRAM_ATTR onSlotMediumInterrupt() { slotMediumInterrupt = true; }
+void IRAM_ATTR onSlotLargeInterrupt()  { slotLargeInterrupt  = true; }
 
 // Non-blocking solenoid: call startSolenoid() to open, loop() closes it via updateSolenoid()
 void startSolenoid() {
@@ -596,6 +603,13 @@ void handleBottleInsert() {
           }
           delay(50);
         }
+      }
+
+      // Discard 10 frames so AE/AWB can settle before the real capture.
+      for (int i = 0; i < 10; i++) {
+        camera_fb_t* dummy = esp_camera_fb_get();
+        if (dummy) esp_camera_fb_return(dummy);
+        delay(100);
       }
 
       camera_fb_t* fb = esp_camera_fb_get();
@@ -674,9 +688,13 @@ void setupPins() {
   digitalWrite(SOLENOID_PIN, LOW);
   pinMode(SENSOR_PIN, INPUT_PULLUP);
   pinMode(READY_BUTTON_PIN, INPUT_PULLUP);
-  pinMode(SLOT_PIN_SMALL, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(READY_BUTTON_PIN), onReadyButtonInterrupt, FALLING);
-  attachInterrupt(digitalPinToInterrupt(SLOT_PIN_SMALL), onSlotSmallInterrupt, FALLING);
+  pinMode(SLOT_PIN_SMALL,  INPUT_PULLUP);
+  pinMode(SLOT_PIN_MEDIUM, INPUT_PULLUP);
+  pinMode(SLOT_PIN_LARGE,  INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(READY_BUTTON_PIN),  onReadyButtonInterrupt,  FALLING);
+  attachInterrupt(digitalPinToInterrupt(SLOT_PIN_SMALL),    onSlotSmallInterrupt,    FALLING);
+  attachInterrupt(digitalPinToInterrupt(SLOT_PIN_MEDIUM),   onSlotMediumInterrupt,   FALLING);
+  attachInterrupt(digitalPinToInterrupt(SLOT_PIN_LARGE),    onSlotLargeInterrupt,    FALLING);
 }
 
 void testCamera() {
@@ -787,6 +805,32 @@ void loop() {
       }
     } else {
       Serial.println("[Slot] SMALL ignored: not PROCESSING");
+    }
+  }
+
+  if (slotMediumInterrupt) {
+    slotMediumInterrupt = false;
+    Serial.printf("[Slot] MEDIUM triggered (status=%s)\n", machineState.status.c_str());
+    if (machineState.status == "PROCESSING") {
+      if (firestoreSlotEvent("MEDIUM")) {
+        machineState.status = "READY";
+        machineState.sessionScore += SCORE_MEDIUM;
+      }
+    } else {
+      Serial.println("[Slot] MEDIUM ignored: not PROCESSING");
+    }
+  }
+
+  if (slotLargeInterrupt) {
+    slotLargeInterrupt = false;
+    Serial.printf("[Slot] LARGE triggered (status=%s)\n", machineState.status.c_str());
+    if (machineState.status == "PROCESSING") {
+      if (firestoreSlotEvent("LARGE")) {
+        machineState.status = "READY";
+        machineState.sessionScore += SCORE_LARGE;
+      }
+    } else {
+      Serial.println("[Slot] LARGE ignored: not PROCESSING");
     }
   }
 

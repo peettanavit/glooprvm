@@ -22,6 +22,8 @@
 #define SENSOR_ACTIVE_HIGH false
 #define READY_BUTTON_PIN 47
 #define SLOT_PIN_SMALL  14
+#define SLOT_PIN_MEDIUM 21
+#define SLOT_PIN_LARGE  47
 
 // Camera + upload endpoint
 // ใช้ Cloud Function URL นี้ได้เลย (ไม่ต้องแก้)

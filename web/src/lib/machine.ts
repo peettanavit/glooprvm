@@ -14,7 +14,7 @@ import {
   type Unsubscribe,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { MACHINE_ID, type MachineState, type MachineStatus } from "@/types/machine";
+import { MACHINE_ID, type MachineState, type MachineStatus, type SlotCounts } from "@/types/machine";
 
 export interface SortingLog {
   id: string;
@@ -174,11 +174,17 @@ export function subscribeToMachine(
         return;
       }
 
+      const sc = data.slotCounts as Partial<SlotCounts> | undefined;
       callback({
         status: data.status,
         current_user: data.current_user ?? "",
         session_score: data.session_score ?? 0,
         session_id: data.session_id ?? "",
+        slotCounts: {
+          SMALL:  sc?.SMALL  ?? 0,
+          MEDIUM: sc?.MEDIUM ?? 0,
+          LARGE:  sc?.LARGE  ?? 0,
+        },
       });
     },
     (error) => {

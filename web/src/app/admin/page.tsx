@@ -203,6 +203,29 @@ export default function AdminPage() {
           </CardBody>
         </Card>
 
+        {/* Slot Counts */}
+        <Card className="shadow-sm border border-green-100">
+          <CardHeader className="pb-2 px-5 pt-4">
+            <h2 className="text-base font-semibold text-gray-700">จำนวนขวดในแต่ละช่อง</h2>
+          </CardHeader>
+          <CardBody className="pt-0 px-5 pb-4">
+            <div className="flex flex-col gap-0 text-sm">
+              <div className="flex justify-between items-center py-3 border-b border-gray-100">
+                <span className="text-gray-500">Small (Lipoviton)</span>
+                <span className="text-green-700 font-bold text-lg">{machine.slotCounts?.SMALL ?? 0}</span>
+              </div>
+              <div className="flex justify-between items-center py-3 border-b border-gray-100">
+                <span className="text-gray-500">Medium (C-Vitt)</span>
+                <span className="text-green-700 font-bold text-lg">{machine.slotCounts?.MEDIUM ?? 0}</span>
+              </div>
+              <div className="flex justify-between items-center py-3">
+                <span className="text-gray-500">Large (M-150)</span>
+                <span className="text-green-700 font-bold text-lg">{machine.slotCounts?.LARGE ?? 0}</span>
+              </div>
+            </div>
+          </CardBody>
+        </Card>
+
         {/* Sorting Logs */}
         <Card className="shadow-sm border border-green-100">
           <CardHeader className="pb-2 px-5 pt-4 flex justify-between items-center">
