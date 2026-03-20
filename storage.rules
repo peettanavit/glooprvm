@@ -11,13 +11,18 @@ service firebase.storage {
         && request.resource.contentType.matches('image/.*');
     }
 
-    // Bottle captures: written by Cloud Function (Admin SDK, bypasses rules).
-    // Only machine accounts (email pattern machine-*@*) may read via Storage rules.
-    match /captures/{machineId}/{sessionId}/{fileName} {
+    // Bottle captures:
+    //   labels/ — written by Cloud Function (Admin SDK, bypasses rules)
+    //   caps/   — written by Slave ESP32 directly via Storage REST API (Auth token)
+    // {allPaths=**} covers nested subfolders (labels/ and caps/).
+    // Only machine accounts (email pattern machine-*@*) may read or write.
+    match /captures/{machineId}/{sessionId}/{allPaths=**} {
       allow read: if request.auth != null
         && request.auth.token.email is string
         && request.auth.token.email.matches('^machine-.*@.*$');
-      allow write: if false; // Admin SDK only
+      allow write: if request.auth != null
+        && request.auth.token.email is string
+        && request.auth.token.email.matches('^machine-.*@.*$');
     }
   }
 }

@@ -455,7 +455,7 @@ void captureAndUploadCap(const String& sessionId) {
     snprintf(timestamp, sizeof(timestamp), "%lu", millis());
   }
   const String storagePath = String("captures/") + MACHINE_ID + "/" +
-                             sessionId + "/" + timestamp + "_cap.jpg";
+                             sessionId + "/caps/" + timestamp + "_cap.jpg";
 
   if (uploadCapToStorage(fb, storagePath)) {
     firestoreWriteCapPath(storagePath);

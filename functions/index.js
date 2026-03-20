@@ -110,7 +110,7 @@ exports.uploadBottleImage = onRequest(
       const bucket = getStorage().bucket();
       const timestamp = Date.now();
       const humanDate = new Date(timestamp).toISOString().replace(/[:.]/g, "-").replace("T", "_").slice(0, 19);
-      const storagePath = `captures/${machineId}/${sessionId}/${humanDate}.jpg`;
+      const storagePath = `captures/${machineId}/${sessionId}/labels/${humanDate}.jpg`;
       const file = bucket.file(storagePath);
 
       await file.save(imageBuffer, {
