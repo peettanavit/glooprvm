@@ -191,7 +191,7 @@ bool uploadFrameToCloudFunction(camera_fb_t* fb, const String& userId, const Str
     return false;
   }
 
-  Serial.println("[CAM] upload ok");
+  Serial.printf("[CAM] upload ok (HTTP %d): %s\n", code, body.c_str());
   return true;
 }
 
@@ -620,15 +620,25 @@ void handleBottleInsert() {
       Serial.println("[RVM] waiting for AI result...");
       const unsigned long aiWaitStart = millis();
       String aiStatus = "";
+      int pollCount = 0;
       while (millis() - aiWaitStart < 10000UL) {
         delay(400);
+        pollCount++;
         MachineState latest;
         if (firestoreGet(latest)) {
+          Serial.printf("[RVM] poll #%d (%.1fs): status=%s\n",
+            pollCount,
+            (millis() - aiWaitStart) / 1000.0f,
+            latest.status.c_str());
           if (latest.status == "PROCESSING" || latest.status == "REJECTED") {
             aiStatus = latest.status;
             machineState = latest;
             break;
           }
+        } else {
+          Serial.printf("[RVM] poll #%d (%.1fs): Firestore read failed\n",
+            pollCount,
+            (millis() - aiWaitStart) / 1000.0f);
         }
       }
 
@@ -639,11 +649,11 @@ void handleBottleInsert() {
         rejectUntil = millis() + REJECT_HOLD_MS;
         Serial.println("[RVM] AI rejected bottle");
       } else {
-        // Timeout: default to accept so user is not blocked
-        startSolenoid();
-        firestorePatchStatus("PROCESSING");
-        machineState.status = "PROCESSING";
-        Serial.println("[RVM] AI timeout, defaulting to accept");
+        // Timeout: default to reject — bottle unverified, safer to not accept
+        rejectUntil = millis() + REJECT_HOLD_MS;
+        firestorePatchStatus("REJECTED");
+        machineState.status = "REJECTED";
+        Serial.printf("[RVM] AI timeout after %d polls (10s) — defaulting to REJECT\n", pollCount);
       }
       return;
     }
