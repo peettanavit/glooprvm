@@ -1,6 +1,6 @@
 # Gloop RVM — System Sync Log
 
-> Last audited: 2026-03-19 (updated same day — second pass)
+> Last audited: 2026-03-20 (third pass — 3-slot support, camera quality, Firestore rules fix)
 > Auditor: Claude Code (Lead Systems Engineer mode)
 
 ---
@@ -42,7 +42,10 @@
         └── "REJECTED"   → hold bottle, show rejection on web
         ▼                  (Slave ESP32 NEVER reads status — upload only)
 [Master ESP32 slot sensor fires when bottle drops]
-        │ firestoreSlotEvent("SMALL")  →  session_score += 1, status: "READY"
+        │ firestoreSlotEvent("SMALL|MEDIUM|LARGE")
+        │   → slotCounts.<SIZE> += 1
+        │   → session_score += 1|2|3
+        │   → status: "READY"
         ▼
 [User presses End Session on Web]
         │ forceSetStatus("COMPLETED")
@@ -68,7 +71,12 @@
 | `status` | string | All layers | See table below |
 | `current_user` | string | Web (`assignMachineToUser`) | Firebase Auth UID |
 | `session_id` | string | Web | `YYYYMMDD-HHMMSS-xxxx` format (e.g. `20260320-065205-a3b4`), generated per session |
-| `session_score` | number | ESP32 (`firestoreSlotEvent`) | Incremented by 1 per accepted bottle |
+| `session_score` | number | ESP32 (`firestoreSlotEvent`) | Incremented by SCORE_SMALL/MEDIUM/LARGE (1/2/3) per accepted bottle |
+| `slotCounts.SMALL` | number | ESP32 (`firestoreSlotEvent`) | Cumulative bottle count for Small slot (Lipoviton) |
+| `slotCounts.MEDIUM` | number | ESP32 (`firestoreSlotEvent`) | Cumulative bottle count for Medium slot (C-Vitt) |
+| `slotCounts.LARGE` | number | ESP32 (`firestoreSlotEvent`) | Cumulative bottle count for Large slot (M-150) |
+| `lastSlotEvent.size` | string | ESP32 (`firestoreSlotEvent`) | Last slot that fired: `"SMALL"` / `"MEDIUM"` / `"LARGE"` |
+| `lastSlotEvent.timestamp` | timestamp | ESP32 (`firestoreSlotEvent`) | Server timestamp of last slot event |
 | `result` | number | listener.py | **1** = lipo_cap / **2** = cvitt_cap / **3** = m150_cap. Only present after AI accepts. |
 | `slave_restart` | bool | Web (`restartSlave()`) | `true` = Slave polls this and calls `ESP.restart()`, then clears back to `false` |
 | `last_capture.label_storage_path` | string | Cloud Function (Master) | GCS path to label/side image |
@@ -94,7 +102,7 @@
 |---|---|---|---|
 | `"IDLE"` | UPPER | Web `resetMachine()`, `resetStaleSessions` | ESP32 (won't process), Web (shows "ว่าง") |
 | `"READY"` | UPPER | Web `assignMachineToUser()`, ESP32 `firestoreSlotEvent()`, ESP32 (after reject hold, after ready-button) | ESP32 `handleBottleInsert()`, Web |
-| `"PROCESSING"` | UPPER | listener.py (AI accepted), ESP32 (AI timeout fallback) | ESP32 `slotSmallInterrupt`, Web |
+| `"PROCESSING"` | UPPER | listener.py (AI accepted), ESP32 (AI timeout fallback) | ESP32 `slotSmall/Medium/LargeInterrupt`, Web |
 | `"REJECTED"` | UPPER | listener.py (AI rejected), listener.py (exception fallback) | ESP32 `rejectUntil` guard, Web |
 | `"COMPLETED"` | UPPER | Web `forceSetStatus("COMPLETED")` | Web → navigates to /summary |
 | `"ready"` | lower | Cloud Function `uploadBottleImage` | listener.py only |
@@ -270,6 +278,22 @@ of fewer dual-cam validations.
 | `web/src/app/admin/page.tsx` | Added "Restart Slave" button (warning color) next to "Reset Machine" | Allows admin to remotely restart Slave without physical access |
 | `Slave_ESP32.ino` | Reads `slave_restart` on every poll; clears flag then `ESP.restart()` | Enables remote restart from admin web UI |
 
+### Pass 3 — 3-slot support, camera quality, Firestore rules fix (2026-03-20)
+
+| File | Change | Reason |
+|---|---|---|
+| `esp32/Master_ESP32/Master_ESP32.ino` | Added `SLOT_PIN_MEDIUM` (GPIO 2) and `SLOT_PIN_LARGE` (GPIO 3) interrupt handlers and loop handling | Support for 3 physical sort slots; each increments its own `slotCounts` field and adds SCORE_MEDIUM=2 / SCORE_LARGE=3 to session_score |
+| `esp32/Master_ESP32/Master_ESP32.ino` | Fixed `set_gainceiling(s, 2)` → `set_gainceiling(s, GAINCEILING_2X)` | Compilation error: `gainceiling_t` is an enum, not an int |
+| `esp32/Master_ESP32/Master_ESP32.ino` | `config.jpeg_quality` 12 → 5; added `set_aec2`, `set_ae_level`, `set_lenc`, `set_raw_gma` sensor settings | Improve image quality for YOLO — higher quality JPEG = more detail, better detection confidence |
+| `esp32/Master_ESP32/Master_ESP32.ino` | Dummy frame warmup 3×50ms → 10×100ms before real capture | Allow AE/AWB to fully settle — prevents pink/overexposed frames |
+| `esp32/config.example.h` | Added `SLOT_PIN_MEDIUM 21` and `SLOT_PIN_LARGE 47` defaults | Document default pin assignments for new slot sensors |
+| `esp32/config.h` | Set `SLOT_PIN_MEDIUM 2`, `SLOT_PIN_LARGE 3` | Actual GPIO pins available on this board (GPIO 1 is SENSOR_PIN; camera uses 4–18) |
+| `firestore.rules` | Added slot-event rule: active session owner may write `status`, `session_score`, `slotCounts`, `lastSlotEvent`, `updatedAt` when setting status back to `READY` | Machine account email (`Tanavit.parn@gmail.com`) does not match `isMachineClient()` pattern — slot events were returning 403 |
+| `web/src/types/machine.ts` | Added `SlotCounts` interface and `slotCounts?: SlotCounts` to `MachineState` | Expose per-slot bottle counts to web |
+| `web/src/lib/machine.ts` | `subscribeToMachine` now reads `slotCounts.SMALL/MEDIUM/LARGE` from Firestore | Forward real-time counts to UI |
+| `web/src/app/admin/page.tsx` | Added "จำนวนขวดในแต่ละช่อง" card with SMALL/MEDIUM/LARGE rows | Admin can see how many bottles are in each slot without checking Firestore console |
+| `ai_server/.env` | `AI_CONFIDENCE_THRESHOLD` 0.5 → 0.35 | C-Vitt consistently detected at 0.26–0.40; 0.5 threshold was too strict for current image quality |
+
 ---
 
 ## 8. Local Setup — Step-by-Step
@@ -361,8 +385,9 @@ Expected startup output:
 - [ ] listener.py shows `[YOLO] label=lipo_cap(0.87)` → `status=PROCESSING`
 - [ ] Master shows `[RVM] AI accepted -> solenoid open`
 - [ ] Solenoid physically opens
-- [ ] Master shows `[Slot] SMALL triggered` after bottle drops
-- [ ] Firebase Console: `session_score` incremented, `result: 1` present
+- [ ] Master shows `[Slot] SMALL/MEDIUM/LARGE triggered` after bottle drops
+- [ ] Firebase Console: `session_score` incremented, `slotCounts.<SIZE>` incremented, `result: 1|2|3` present
+- [ ] Admin page `/admin` shows updated slot count in "จำนวนขวดในแต่ละช่อง" card
 
 ### Slave ESP32-S3
 - [ ] Serial Monitor shows `[Auth] slave signed in`

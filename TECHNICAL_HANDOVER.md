@@ -1,6 +1,6 @@
 # Gloop RVM — Technical Handover Document
 
-> Last updated: 2026-03-19 (final — all firmware and web features complete)
+> Last updated: 2026-03-20 (3-slot support, camera quality, Firestore rules fix)
 > Architecture: Dual ESP32-S3 (Master / Slave) + Python AI Listener + Firebase
 
 ---
@@ -78,7 +78,12 @@
 | `status` | string | All layers | See state machine below |
 | `current_user` | string | Web | Firebase Auth UID of active user |
 | `session_id` | string | Web | `YYYYMMDD-HHMMSS-xxxx` format (e.g. `20260320-065205-a3b4`), new per session |
-| `session_score` | number | Master ESP32 | Increments by 1 per accepted bottle |
+| `session_score` | number | Master ESP32 | Increments by 1/2/3 (SMALL/MEDIUM/LARGE) per accepted bottle |
+| `slotCounts.SMALL` | number | Master ESP32 | Cumulative bottle count for Small slot (Lipoviton) — persists across sessions |
+| `slotCounts.MEDIUM` | number | Master ESP32 | Cumulative bottle count for Medium slot (C-Vitt) — persists across sessions |
+| `slotCounts.LARGE` | number | Master ESP32 | Cumulative bottle count for Large slot (M-150) — persists across sessions |
+| `lastSlotEvent.size` | string | Master ESP32 | Last slot that fired: `"SMALL"` / `"MEDIUM"` / `"LARGE"` |
+| `lastSlotEvent.timestamp` | timestamp | Master ESP32 | Server timestamp of last slot event |
 | `result` | number | listener.py | `1`=lipo_cap / `2`=cvitt_cap / `3`=m150_cap — written on PROCESSING only |
 | `slave_restart` | bool | Web (`restartSlave()`) | Admin sets `true` → Slave detects on next poll, clears flag, calls `ESP.restart()` |
 | `updatedAt` | timestamp | All layers | Server timestamp |
@@ -209,8 +214,16 @@ than 10 minutes back to `IDLE`.
 |---|---|---|
 | `FIREBASE_SERVICE_ACCOUNT` | *(required)* | Path to service account JSON |
 | `FIREBASE_STORAGE_BUCKET` | `glooprvm.firebasestorage.app` | GCS bucket name |
-| `AI_CONFIDENCE_THRESHOLD` | `0.5` | Min YOLO confidence for accept/reject |
+| `AI_CONFIDENCE_THRESHOLD` | `0.35` | Min YOLO confidence for accept/reject (lowered from 0.5 — C-Vitt detects at 0.26–0.40 with current camera quality) |
 | `CAP_WAIT_SECONDS` | `1.5` | Max seconds to wait for Slave image |
+
+---
+
+## 5b. Firestore Security Rules — Key Notes
+
+The machine account email (`Tanavit.parn@gmail.com`) does **not** match the `isMachineClient()` pattern (`^machine-.*@.*$`). Slot events (`firestoreSlotEvent`) are therefore authorized via a separate rule that allows the **active session owner** to write `status`, `session_score`, `slotCounts`, `lastSlotEvent`, `updatedAt` — provided the result sets `status` back to `"READY"` and does not change `current_user` or `session_id`.
+
+If you create a dedicated machine account matching `^machine-.*@.*$` in the future, slot events will be covered by the existing `isMachineClient()` rule and this extra rule can be removed.
 
 ---
 
@@ -225,9 +238,18 @@ All firmware and web features are complete and pushed to `main`.
   `listener.py` reads this field directly; legacy fallback to `storage_path` is
   still in place for any existing single-cam data.
 
-- [x] **Master is the only device calling `firestoreSlotEvent`.**
-  `SLOT_PIN_SMALL` interrupt and score increment are in `Master_ESP32.ino` only.
-  Slave firmware has no GPIO output logic.
+- [x] **3-slot limit switch support.**
+  `SLOT_PIN_SMALL` (GPIO 14), `SLOT_PIN_MEDIUM` (GPIO 2), `SLOT_PIN_LARGE` (GPIO 3).
+  Each pin has its own ISR and loop handler. On trigger during `PROCESSING`:
+  - Calls `firestoreSlotEvent("SMALL"|"MEDIUM"|"LARGE")`
+  - Increments `slotCounts.<SIZE>` and `session_score` (by 1/2/3) atomically in Firestore
+  - Sets `status = "READY"` locally and in Firestore
+  Slot events are **ignored** when status is not `PROCESSING` (debounce safety).
+
+- [x] **Camera quality improvements.**
+  - `config.jpeg_quality = 5` (was 12) — highest quality, larger files, more YOLO detail
+  - Added sensor settings: `set_aec2(1)`, `set_ae_level(0)`, `set_gainceiling(GAINCEILING_2X)`, `set_lenc(1)`, `set_raw_gma(1)`
+  - Dummy frame warmup: 10 frames × 100ms (was 3 × 50ms) — allows AE/AWB to fully settle before real capture
 
 - [x] **No solenoid logic changes needed.**
   The Master already polls for `status == "PROCESSING"` and calls `startSolenoid()`.
@@ -278,6 +300,8 @@ glooprvm/
 │   ├── Slave_ESP32/
 │   │   └── Slave_ESP32.ino  ← Slave ESP32-S3 firmware (cap cam upload only)
 │   ├── config.h             ← Master live credentials (gitignored)
+│   │                           Key GPIO: SOLENOID=38, SENSOR=1, READY_BTN=47
+│   │                                     SLOT_SMALL=14, SLOT_MEDIUM=2, SLOT_LARGE=3
 │   ├── config.example.h     ← Master credential template (tracked)
 │   ├── config_slave.h       ← Slave live credentials (gitignored)
 │   ├── config_slave.example.h ← Slave credential template (tracked)
