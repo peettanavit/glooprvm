@@ -77,7 +77,7 @@
 |---|---|---|---|
 | `status` | string | All layers | See state machine below |
 | `current_user` | string | Web | Firebase Auth UID of active user |
-| `session_id` | string | Web | UUID, new per session |
+| `session_id` | string | Web | `YYYYMMDD-HHMMSS-xxxx` format (e.g. `20260320-065205-a3b4`), new per session |
 | `session_score` | number | Master ESP32 | Increments by 1 per accepted bottle |
 | `result` | number | listener.py | `1`=lipo_cap / `2`=cvitt_cap / `3`=m150_cap — written on PROCESSING only |
 | `slave_restart` | bool | Web (`restartSlave()`) | Admin sets `true` → Slave detects on next poll, clears flag, calls `ESP.restart()` |

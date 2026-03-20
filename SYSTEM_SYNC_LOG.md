@@ -67,7 +67,7 @@
 |---|---|---|---|
 | `status` | string | All layers | See table below |
 | `current_user` | string | Web (`assignMachineToUser`) | Firebase Auth UID |
-| `session_id` | string | Web | UUID, generated per session |
+| `session_id` | string | Web | `YYYYMMDD-HHMMSS-xxxx` format (e.g. `20260320-065205-a3b4`), generated per session |
 | `session_score` | number | ESP32 (`firestoreSlotEvent`) | Incremented by 1 per accepted bottle |
 | `result` | number | listener.py | **1** = lipo_cap / **2** = cvitt_cap / **3** = m150_cap. Only present after AI accepts. |
 | `slave_restart` | bool | Web (`restartSlave()`) | `true` = Slave polls this and calls `ESP.restart()`, then clears back to `false` |
@@ -158,7 +158,7 @@ Written by listener.py on each accepted bottle. Read by web `SortingHistoryTable
 | `ai_label` | string | Raw YOLO class name |
 | `ai_conf` | float | Confidence score 0.0–1.0 |
 | `user_id` | string | Firebase Auth UID |
-| `session_id` | string | Session UUID |
+| `session_id` | string | Session ID (`YYYYMMDD-HHMMSS-xxxx`) |
 | `sorted_at` | timestamp | Server timestamp |
 
 ---
@@ -166,13 +166,13 @@ Written by listener.py on each accepted bottle. Read by web `SortingHistoryTable
 ## 6. Storage Path Convention
 
 ```
-captures/{machineId}/{sessionId}/{YYYY-MM-DD_HH-MM-SS}.jpg          ← Master (label)
-captures/{machineId}/{sessionId}/{YYYY-MM-DD_HH-MM-SS}_cap.jpg      ← Slave  (cap)
+captures/{machineId}/{sessionId}/labels/{YYYY-MM-DD_HH-MM-SS}.jpg      ← Master (label)
+captures/{machineId}/{sessionId}/caps/{YYYY-MM-DD_HH-MM-SS}_cap.jpg   ← Slave  (cap)
 ```
 
 Example:
-- `captures/Gloop_01/abc-123/2026-03-19_14-30-00.jpg`
-- `captures/Gloop_01/abc-123/2026-03-19_14-30-00_cap.jpg`
+- `captures/Gloop_01/20260320-065205-a3b4/labels/2026-03-20_06-52-06.jpg`
+- `captures/Gloop_01/20260320-065205-a3b4/caps/2026-03-20_06-52-06_cap.jpg`
 
 The Master path is written to `last_capture.label_storage_path` by the Cloud Function.
 The Slave path is written to `last_capture.cap_storage_path` by a separate upload.

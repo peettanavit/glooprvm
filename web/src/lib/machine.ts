@@ -43,11 +43,17 @@ export async function assignMachineToUser(uid: string): Promise<void> {
       throw new Error("Machine is currently in use");
     }
 
-    const sessionId = typeof globalThis.crypto?.randomUUID === "function"
-      ? globalThis.crypto.randomUUID()
-      : Array.from(globalThis.crypto.getRandomValues(new Uint8Array(16)))
-          .map((b) => b.toString(16).padStart(2, "0"))
-          .join("-");
+    const now = new Date();
+    const datePart = now.getFullYear().toString() +
+      (now.getMonth() + 1).toString().padStart(2, "0") +
+      now.getDate().toString().padStart(2, "0");
+    const timePart = now.getHours().toString().padStart(2, "0") +
+      now.getMinutes().toString().padStart(2, "0") +
+      now.getSeconds().toString().padStart(2, "0");
+    const randPart = Array.from(globalThis.crypto.getRandomValues(new Uint8Array(2)))
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+    const sessionId = `${datePart}-${timePart}-${randPart}`;
 
     tx.set(
       machineRef,
