@@ -1,0 +1,10 @@
+.env
+# Service account keys — any name pattern
+serviceAccountKey.json
+*-firebase-adminsdk-*.json
+*.json
+!requirements*.json
+models/
+__pycache__/
+*.pyc
+runs/

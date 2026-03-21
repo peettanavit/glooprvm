@@ -68,33 +68,50 @@ def detect_bottle(img_bytes: bytes) -> dict:
             "bottle_type": "unknown", "label_name": "error", "cap_name": "error",
         }
 
+    # ── Preprocessing — CLAHE + sharpening (helps low-contrast labels) ───────
+    lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
+    l_ch, a_ch, b_ch = cv2.split(lab)
+    l_ch = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(l_ch)
+    enhanced = cv2.cvtColor(cv2.merge([l_ch, a_ch, b_ch]), cv2.COLOR_LAB2BGR)
+    sharpen  = np.array([[0, -0.5, 0], [-0.5, 3, -0.5], [0, -0.5, 0]])
+    proc     = cv2.filter2D(enhanced, -1, sharpen)
+
+    def _best_detection(results, model_names):
+        """Return (name, conf) for highest-conf detection above its class threshold."""
+        best_name, best_conf = "no_detection", 0.0
+        if len(results.boxes) == 0:
+            print(f"  [DEBUG] No detections")
+            return best_name, best_conf
+        for box in sorted(results.boxes, key=lambda b: float(b.conf[0]), reverse=True):
+            cls_id = int(box.cls[0].item())
+            name   = model_names[cls_id]
+            conf   = float(box.conf[0].item())
+            thr    = CONF_THRESHOLDS.get(name, CONF_THRESHOLDS["default"])
+            status = "PASS" if conf >= thr else f"FAIL(thr={thr:.0%})"
+            print(f"  [DEBUG]   {name}: {conf:.3f} [{status}]")
+            if conf >= thr and conf > best_conf:
+                best_conf = conf
+                best_name = name
+        return best_name, best_conf
+
     # ── Run label model ──────────────────────────────────────────────────────
-    label_results = label_model(img, verbose=False)[0]
-    if len(label_results.boxes) > 0:
-        top_idx  = int(label_results.boxes.conf.argmax().item())
-        label_name = label_results.names[int(label_results.boxes.cls[top_idx].item())]
-        label_conf = float(label_results.boxes.conf[top_idx].item())
-    else:
-        label_name = "no_label"
-        label_conf = 0.0
+    print(f"[YOLO] label model raw detections:")
+    label_results = label_model(proc, verbose=False)[0]
+    label_name, label_conf = _best_detection(label_results, label_model.names)
 
     # ── Run cap model ────────────────────────────────────────────────────────
-    cap_results = cap_model(img, verbose=False)[0]
-    if len(cap_results.boxes) > 0:
-        top_idx  = int(cap_results.boxes.conf.argmax().item())
-        cap_name = cap_results.names[int(cap_results.boxes.cls[top_idx].item())]
-        cap_conf = float(cap_results.boxes.conf[top_idx].item())
-    else:
-        cap_name = "no_cap"
-        cap_conf = 0.0
+    print(f"[YOLO] cap model raw detections:")
+    cap_results = cap_model(proc, verbose=False)[0]
+    cap_name, cap_conf = _best_detection(cap_results, cap_model.names)
 
-    print(f"[YOLO] label={label_name}({label_conf:.2f})  cap={cap_name}({cap_conf:.2f})")
+    print(f"[YOLO] final → label={label_name}({label_conf:.2f})  cap={cap_name}({cap_conf:.2f})")
 
     # ── Classify result ──────────────────────────────────────────────────────
     # Update these sets to match your model's actual class names.
     # Run: print(label_model.names) and print(cap_model.names) to check.
-    BOTTLE_CLASSES = {"plastic_bottle", "bottle", "pet_bottle", "water_bottle"}
-    CAP_CLASSES    = {"cap", "bottle_cap", "with_cap", "closed"}
+    BOTTLE_CLASSES = {"cvitt", "ginseng", "lipo", "m150", "msport", "peptein", "shark"}
+    CAP_CLASSES    = {"cvitt_cap", "ginseng_cap", "lipo_cap", "m-sport_cap", "m150_cap", "peptein_cap", "shark_cap"}
+    CONF_THRESHOLDS = {"m150": 0.25, "m150_cap": 0.25, "default": 0.45}
 
     has_label = label_name in BOTTLE_CLASSES
     has_cap   = cap_name   in CAP_CLASSES
