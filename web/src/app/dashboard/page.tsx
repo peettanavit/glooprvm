@@ -265,9 +265,25 @@ export default function DashboardPage() {
 
         <MachineStatusCard status={machine.status} score={machine.session_score} />
 
-        {/* Trigger capture button — visible only when session is armed */}
+        {/* Placement instruction + trigger — visible only when session is armed */}
         {machine.status === "READY" && machine.current_user === currentUid && (
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-3">
+            {/* Instruction card — hide once trigger is pending (capture in progress) */}
+            {!machine.trigger_source && !triggering && (
+              <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 flex gap-3 items-start">
+                <span className="text-2xl leading-none mt-0.5">📋</span>
+                <div className="flex flex-col gap-1">
+                  <p className="text-sm font-semibold text-amber-800">
+                    ก่อนกดถ่ายรูป
+                  </p>
+                  <p className="text-sm text-amber-700 leading-relaxed">
+                    กรุณาวางขวดให้ฉลากข้างขวดเห็นชัดๆ หันขึ้น
+                    และวางขวดให้ตรงช่องใส่ขวด
+                  </p>
+                </div>
+              </div>
+            )}
+
             <Button
               color="success"
               variant="solid"
@@ -283,6 +299,7 @@ export default function DashboardPage() {
                 ? "กำลังส่งคำสั่ง…"
                 : "ใส่ขวดแล้ว — ถ่ายรูป"}
             </Button>
+
             {triggerError && (
               <p className="text-xs text-red-500 text-center">{triggerError}</p>
             )}
