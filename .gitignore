@@ -24,6 +24,8 @@ ai_server/__pycache__/
 ai_server/*.json
 ai_server/models/
 ai_server/training_results/
+ai_server/cap/
+ai_server/label/
 edge/.venv/
 edge/.venv2/
 edge/__pycache__/
@@ -32,4 +34,7 @@ edge/__pycache__/
 # ESP32
 esp32/config.h
 esp32/config_slave.h
+
+# Firebase local cache/artifacts
+.firebase/
 
