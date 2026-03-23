@@ -75,6 +75,14 @@ export async function resetMachine(): Promise<void> {
     current_user: "",
     session_score: 0,
     session_id: "",
+    trigger_source: "",
+    updatedAt: serverTimestamp(),
+  });
+}
+
+export async function triggerCapture(source: "web" | "button" = "web"): Promise<void> {
+  await updateDoc(machineRef, {
+    trigger_source: source,
     updatedAt: serverTimestamp(),
   });
 }
@@ -180,6 +188,7 @@ export function subscribeToMachine(
         current_user: data.current_user ?? "",
         session_score: data.session_score ?? 0,
         session_id: data.session_id ?? "",
+        trigger_source: data.trigger_source ?? "",
         slotCounts: {
           SMALL:  sc?.SMALL  ?? 0,
           MEDIUM: sc?.MEDIUM ?? 0,

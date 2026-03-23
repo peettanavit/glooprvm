@@ -110,17 +110,21 @@ log.info("[AI] Loading label model…")
 _label_model = YOLO(os.path.join(_MODEL_DIR, "label_model.pt"))
 log.info("[AI] Label model ready. Classes: %s", _label_model.names)
 
-_CONFIDENCE_THRESHOLD = float(os.environ.get("AI_CONFIDENCE_THRESHOLD", "0.5"))
+_CONFIDENCE_THRESHOLD   = float(os.environ.get("AI_CONFIDENCE_THRESHOLD", "0.5"))
+_SAFETY_LOCK_THRESHOLD  = float(os.environ.get("AI_SAFETY_LOCK_THRESHOLD", "0.35"))
 
+# Class names must match label_model.pt — same as listener.py
 _LABEL_TO_RESULT: dict[str, int] = {
-    "lipo":  1,
-    "cvitt": 2,
-    "m150":  3,
+    "lipo_cap":  1,
+    "cvitt_cap": 2,
+    "m150_cap":  3,
 }
 
 _REJECT_CLASSES: frozenset[str] = frozenset({
-    "ginseng",
-    "peptein",
+    "ginseng_cap",
+    "m-sport_cap",
+    "peptein_cap",
+    "shark_cap",
 })
 
 
@@ -151,6 +155,16 @@ def detect_bottle(frame: np.ndarray) -> dict:
     """
     ai_label, ai_conf = _top_detection(_label_model(frame, verbose=False)[0])
     log.info("[YOLO] label=%s(%.2f)", ai_label, ai_conf)
+
+    # Safety Lock: hard floor — reject immediately if confidence is too low
+    if ai_conf < _SAFETY_LOCK_THRESHOLD:
+        log.warning("[SAFETY_LOCK] ai_conf=%.2f below %.2f — hard REJECTED",
+                    ai_conf, _SAFETY_LOCK_THRESHOLD)
+        return {
+            "valid": False, "result": None,
+            "ai_label": ai_label, "ai_conf": ai_conf,
+            "reason": "Low confidence",
+        }
 
     if ai_label in _REJECT_CLASSES and ai_conf >= _CONFIDENCE_THRESHOLD:
         return {

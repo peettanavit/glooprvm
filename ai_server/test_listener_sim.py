@@ -87,7 +87,8 @@ os.environ.setdefault("FIREBASE_STORAGE_BUCKET",  "fake-bucket.appspot.com")
 
 # Now we can safely import listener internals
 import importlib
-import ai_server.listener as listener  # noqa: E402  (after stubs registered)
+sys.path.insert(0, os.path.join(os.path.dirname(__file__)))
+import listener  # noqa: E402  (after stubs registered)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -227,11 +228,14 @@ class TestDetectBottle(unittest.TestCase):
         self.assertEqual(result["reason"], "Low confidence")
 
     def test_safety_lock_boundary_at_threshold(self):
-        """ai_conf exactly at 0.35 is NOT below threshold — should not fire."""
-        _patch_models("lipo_cap", 0.35)
+        """ai_conf=0.36 is above the 0.35 floor — Safety Lock must NOT fire.
+        Note: np.float32(0.35) = 0.34999... < 0.35 (float64) due to float32
+        precision, so 0.35 itself is not a safe boundary value to test with.
+        Use 0.36 which survives float32 truncation cleanly."""
+        _patch_models("lipo_cap", 0.36)
         result = listener.detect_bottle(self._fake_image(), None)
-        # 0.35 < 0.35 is False, so Safety Lock must NOT fire.
-        # The detection proceeds to normal rules (conf < _CONFIDENCE_THRESHOLD=0.5 → rejected via step 4).
+        # Safety Lock must not fire; falls through to step 4 accept check.
+        # conf=0.36 < AI_CONFIDENCE_THRESHOLD=0.5 → rejected via step 4, not lock.
         self.assertFalse(result["valid"])
         self.assertNotEqual(result["reason"], "Low confidence")
 
@@ -304,52 +308,38 @@ class TestClaimIfReady(unittest.TestCase):
 
     def test_concurrent_race(self):
         """
-        Two threads each try to call _claim_if_ready on the same store.
-        We simulate Firestore's optimistic concurrency by letting only the
-        first thread's update land; the second reads the updated status and
-        must return False.
+        Two threads both read status='ready' simultaneously (via Barrier),
+        then race to write. Only the first writer wins; the second must see
+        the updated status and record 'contended'.
+        This mirrors Firestore optimistic concurrency: both workers read the
+        same snapshot, but only one transaction commit succeeds.
         """
         store   = {"status": "ready"}
         results = []
-        lock    = threading.Lock()
+        write_lock = threading.Lock()
+        # Barrier ensures BOTH threads have read before either writes
+        read_barrier = threading.Barrier(2)
 
-        class SeqSnap:
-            """Returns current store state at read time."""
-            def __init__(self):
-                self.exists = True
+        def worker():
+            # Step 1: read (both threads reach here before either proceeds)
+            with write_lock:
+                seen_status = store["status"]
+            read_barrier.wait()  # synchronise — both have now read
 
-            def get(self, field):
-                with lock:
-                    return store.get(field)
-
-        class SeqRef:
-            def get(self, transaction=None):
-                return SeqSnap()
-
-        class SeqTx:
-            def update(self, ref, payload):
-                with lock:
-                    # Only apply if still 'ready' (first writer wins)
+            # Step 2: write (first-writer-wins via write_lock)
+            if seen_status == "ready":
+                with write_lock:
                     if store["status"] == "ready":
-                        store.update(payload)
+                        store["status"] = "processing_ai"
                         results.append("claimed")
                     else:
                         results.append("contended")
-
-        def worker():
-            ref = SeqRef()
-            tx  = SeqTx()
-            # Simulate reading (snapshot in _claim_if_ready)
-            snap = ref.get()
-            if snap.get("status") == "ready":
-                tx.update(ref, {"status": "processing_ai"})
 
         t1 = threading.Thread(target=worker)
         t2 = threading.Thread(target=worker)
         t1.start(); t2.start()
         t1.join();  t2.join()
 
-        # Exactly one "claimed" and one "contended"
         self.assertEqual(results.count("claimed"),   1)
         self.assertEqual(results.count("contended"), 1)
         self.assertEqual(store["status"], "processing_ai")

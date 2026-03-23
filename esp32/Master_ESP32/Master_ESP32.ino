@@ -51,6 +51,9 @@ struct MachineState {
   String currentUser = "";
   int sessionScore = 0;
   String sessionId = "";
+  // Explicit capture trigger written by web/button/sensor.
+  // Empty string = no trigger pending.
+  String triggerSource = "";
   bool exists = false;
 };
 
@@ -426,6 +429,9 @@ bool firestoreGet(MachineState& outState) {
   if (fields["session_id"]["stringValue"].is<const char*>()) {
     parsed.sessionId = fields["session_id"]["stringValue"].as<const char*>();
   }
+  if (fields["trigger_source"]["stringValue"].is<const char*>()) {
+    parsed.triggerSource = fields["trigger_source"]["stringValue"].as<const char*>();
+  }
 
   int score = 0;
   if (parseIntField(fields["session_score"], score)) {
@@ -476,6 +482,34 @@ bool firestorePatchStatus(const String& status) {
     return false;
   }
   return true;
+}
+
+bool firestoreClearTrigger() {
+  HTTPClient http;
+  const String url = String("https://firestore.googleapis.com/v1/projects/") +
+                     FIREBASE_PROJECT_ID +
+                     "/databases/(default)/documents:commit";
+  const String docPath = String("projects/") + FIREBASE_PROJECT_ID +
+                         "/databases/(default)/documents/machines/" + MACHINE_ID;
+
+  DynamicJsonDocument payload(512);
+  JsonObject update = payload["writes"][0]["update"].to<JsonObject>();
+  update["name"] = docPath;
+  update["fields"]["trigger_source"]["stringValue"] = "";
+  payload["writes"][0]["updateMask"]["fieldPaths"][0] = "trigger_source";
+
+  String payloadText;
+  serializeJson(payload, payloadText);
+
+  http.setTimeout(8000);
+  http.begin(secureClient, url);
+  http.addHeader("Authorization", String("Bearer ") + idToken);
+  http.addHeader("Content-Type", "application/json");
+  int code = http.POST(payloadText);
+  http.end();
+
+  if (code == 401) { idToken = ""; return false; }
+  return (code >= 200 && code < 300);
 }
 
 bool firestoreSlotEvent(const String& size) {
@@ -565,6 +599,13 @@ void updateSolenoid() {
 }
 
 void handleBottleInsert() {
+  // Consume trigger immediately — prevents re-entry on the next Firestore poll.
+  // If clearTrigger fails the field stays set, but the status will no longer be
+  // READY after this call completes, so the loop guard won't re-fire anyway.
+  firestoreClearTrigger();
+  machineState.triggerSource = "";
+  Serial.printf("[RVM] trigger consumed (source=%s)\n", machineState.triggerSource.c_str());
+
   // ── Webcam mode: skip ESP32 camera, set status="ready" for PC listener ──
   if (WEBCAM_MODE) {
     Serial.println("[RVM] webcam mode — setting status=ready for PC listener…");
@@ -807,7 +848,11 @@ void loop() {
     return;
   }
 
-  if (machineState.status == "READY") {
+  // READY alone does not trigger capture — an explicit trigger_source is required.
+  // Sources: "web" (manual now), "button" (next phase), "sensor" (future).
+  if (machineState.status == "READY" && machineState.triggerSource.length() > 0) {
+    Serial.printf("[RVM] trigger detected (source=%s) — starting capture\n",
+                  machineState.triggerSource.c_str());
     handleBottleInsert();
   }
 

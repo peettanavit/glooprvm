@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { Alert, Button, Spinner } from "@heroui/react";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth } from "@/lib/firebase";
-import { assignMachineToUser, forceSetStatus, subscribeToMachine, subscribeToSortingLogs, type SortingLog } from "@/lib/machine";
+import { assignMachineToUser, forceSetStatus, subscribeToMachine, subscribeToSortingLogs, triggerCapture, type SortingLog } from "@/lib/machine";
 import { MachineStatusCard } from "@/components/machine-status-card";
 import { MachineWaitingAnimation } from "@/components/machine-waiting-animation";
 import { SortingHistoryTable } from "@/components/sorting-history-table";
@@ -52,6 +52,9 @@ export default function DashboardPage() {
   const [sessionError, setSessionError] = useState<string | null>(null);
   const [waitingForMachine, setWaitingForMachine] = useState(false);
   const [ending, setEnding] = useState(false);
+  const [triggering, setTriggering] = useState(false);
+  const [triggerError, setTriggerError] = useState<string | null>(null);
+  const [currentUid, setCurrentUid] = useState<string | null>(null);
   const [sortingLogs, setSortingLogs] = useState<SortingLog[]>([]);
   const lastActivityRef = useRef<number>(Date.now());
 
@@ -101,6 +104,7 @@ export default function DashboardPage() {
 
       if (user) {
         currentUidRef.current = user.uid;
+        setCurrentUid(user.uid);
 
         try {
           await user.getIdToken();
@@ -158,6 +162,7 @@ export default function DashboardPage() {
 
       // User signed out
       currentUidRef.current = null;
+      setCurrentUid(null);
       waitingForMachineRef.current = false;
       setWaitingForMachine(false);
       sessionStorage.removeItem("summaryViewed");
@@ -210,6 +215,34 @@ export default function DashboardPage() {
     }
   };
 
+  // Guard: only fire when READY + this user owns the machine + no pending trigger
+  const canTrigger =
+    machine.status === "READY" &&
+    machine.current_user === currentUid &&
+    !machine.trigger_source &&
+    !triggering &&
+    !waitingForMachine;
+
+  const handleTriggerCapture = async () => {
+    if (!canTrigger) return;
+    setTriggering(true);
+    setTriggerError(null);
+    try {
+      await triggerCapture("web");
+    } catch (err) {
+      setTriggerError(err instanceof Error ? err.message : "เกิดข้อผิดพลาด กรุณาลองใหม่");
+    } finally {
+      setTriggering(false);
+    }
+  };
+
+  // Reset trigger UI state once machine leaves READY (AI is running or done)
+  const prevStatusRef = useRef(machine.status);
+  if (prevStatusRef.current !== machine.status) {
+    prevStatusRef.current = machine.status;
+    if (machine.status !== "READY" && triggerError) setTriggerError(null);
+  }
+
   const isMachineInUseError = sessionError === "Machine is currently in use";
   const hasOtherError = !!sessionError && !isMachineInUseError;
 
@@ -232,9 +265,31 @@ export default function DashboardPage() {
 
         <MachineStatusCard status={machine.status} score={machine.session_score} />
 
-        {(machine.status === "READY" || machine.status === "PROCESSING") && (
-          <MachineWaitingAnimation />
+        {/* Trigger capture button — visible only when session is armed */}
+        {machine.status === "READY" && machine.current_user === currentUid && (
+          <div className="flex flex-col gap-2">
+            <Button
+              color="success"
+              variant="solid"
+              size="lg"
+              className="font-semibold w-full"
+              isLoading={triggering || !!machine.trigger_source}
+              isDisabled={!canTrigger}
+              onPress={handleTriggerCapture}
+            >
+              {machine.trigger_source
+                ? "กำลังรอกล้อง…"
+                : triggering
+                ? "กำลังส่งคำสั่ง…"
+                : "ใส่ขวดแล้ว — ถ่ายรูป"}
+            </Button>
+            {triggerError && (
+              <p className="text-xs text-red-500 text-center">{triggerError}</p>
+            )}
+          </div>
         )}
+
+        {machine.status === "PROCESSING" && <MachineWaitingAnimation />}
 
         {machine.status === "REJECTED" && (
           <Alert color="warning" title="ขวดไม่ผ่านการตรวจสอบ กรุณาใส่ขวดใบถัดไป" />

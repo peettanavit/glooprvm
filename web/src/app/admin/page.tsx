@@ -21,6 +21,7 @@ import {
   subscribeToSortingLogs,
   type SortingLog,
 } from "@/lib/machine";
+import { LiveSortingStatus } from "@/components/live-sorting-status";
 import { type MachineState, type MachineStatus } from "@/types/machine";
 
 const initialMachine: MachineState = {
@@ -268,6 +269,9 @@ export default function AdminPage() {
             )}
           </CardBody>
         </Card>
+
+        {/* Live Sorting Status — real-time operator view */}
+        <LiveSortingStatus />
 
         {/* Back link */}
         <Button as={Link} href="/dashboard" variant="flat" className="font-medium">

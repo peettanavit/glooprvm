@@ -17,6 +17,9 @@ export interface MachineState {
   session_score: number;
   session_id?: string;
   slotCounts?: SlotCounts;
+  // Explicit capture trigger — "" means no trigger pending.
+  // Sources: "web" (manual), "button" (next phase), "sensor" (future).
+  trigger_source?: string;
 }
 
 export const MACHINE_ID = "Gloop_01";
