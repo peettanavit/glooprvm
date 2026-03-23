@@ -80,6 +80,11 @@ log.info("[AI] Cap classes: %s", _cap_model.names)
 # Minimum confidence to act on any detection (accept OR reject)
 _CONFIDENCE_THRESHOLD = float(os.environ.get("AI_CONFIDENCE_THRESHOLD", "0.5"))
 
+# Safety Lock: if label_model top confidence is below this floor, reject
+# immediately without attempting class-level decisions.  Prevents the AI from
+# "guessing" on blurry / occluded images where any class assignment is noise.
+_SAFETY_LOCK_THRESHOLD = float(os.environ.get("AI_SAFETY_LOCK_THRESHOLD", "0.35"))
+
 # Seconds to wait for Slave ESP32 cap image before falling back to single-cam mode.
 # 1.5 s is enough for a typical WiFi upload; raise if your network is slow.
 _CAP_WAIT_S = float(os.environ.get("CAP_WAIT_SECONDS", "1.5"))
@@ -170,6 +175,23 @@ def detect_bottle(label_bytes: bytes, cap_bytes: bytes | None) -> dict:
 
     log.info("[YOLO] label=%s(%.2f)  cap=%s(%.2f)  dual_cam=%s",
              ai_label, ai_conf, cap_name, cap_conf, dual_cam)
+
+    # ── Safety Lock: hard floor on label confidence ────────────────────────────
+    # Fires before any class-specific logic.  A detection this weak is
+    # statistically indistinguishable from noise — never accept or route it.
+    if ai_conf < _SAFETY_LOCK_THRESHOLD:
+        log.warning("[SAFETY_LOCK] ai_conf=%.2f below %.2f — hard REJECTED",
+                    ai_conf, _SAFETY_LOCK_THRESHOLD)
+        return {
+            "valid":    False,
+            "result":   None,
+            "ai_label": ai_label,
+            "ai_conf":  ai_conf,
+            "cap_name": cap_name,
+            "cap_conf": cap_conf,
+            "dual_cam": dual_cam,
+            "reason":   "Low confidence",
+        }
 
     # ── Step 2: label_model negative-filter check ─────────────────────────────
     if ai_label in _REJECT_CLASSES and ai_conf >= _CONFIDENCE_THRESHOLD:

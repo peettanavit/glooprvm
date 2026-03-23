@@ -32,6 +32,7 @@ CAP_BRANDS   = set(BRAND_TO_CAP.values())
 CONF_THRESHOLDS = {
     "m150":       0.25,   # M-150 label has low contrast — relaxed threshold
     "m150_cap":   0.25,   # same for its cap
+    "peptein_cap": 0.65,  # raised: model confuses cvitt_cap as peptein_cap at low conf
     "default":    0.45,   # all other classes
 }
 

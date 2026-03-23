@@ -29,7 +29,6 @@ OV5640 ov5640;
 const unsigned long WIFI_RETRY_MS = 4000;
 const unsigned long REJECT_HOLD_MS = 1200;
 const unsigned long TOKEN_REFRESH_MARGIN_MS = 60000;
-const unsigned long SENSOR_DEBOUNCE_MS = 20;
 const unsigned long SOLENOID_PULSE_MS = 600;
 
 const int SCORE_SMALL = 1;
@@ -41,8 +40,6 @@ unsigned long lastWiFiRetryAt = 0;
 unsigned long lastFirestorePollAt = 0;
 unsigned long tokenExpiresAt = 0;
 unsigned long rejectUntil = 0;
-unsigned long lastSensorReadAt = 0;
-bool lastSensorState = false;
 bool wifiBeginInProgress = false;
 bool timeInitialized = false;
 
@@ -545,20 +542,6 @@ bool firestoreSlotEvent(const String& size) {
   return true;
 }
 
-bool readSensorEdgeRaw() {
-  const unsigned long now = millis();
-  if (now - lastSensorReadAt < SENSOR_DEBOUNCE_MS) {
-    return false;
-  }
-  lastSensorReadAt = now;
-
-  const int raw = digitalRead(SENSOR_PIN);
-  const bool active = SENSOR_ACTIVE_HIGH ? (raw == HIGH) : (raw == LOW);
-  const bool edge = active && !lastSensorState;
-  lastSensorState = active;
-  return edge;
-}
-
 void IRAM_ATTR onReadyButtonInterrupt() {
   readyButtonInterrupt = true;
 }
@@ -569,19 +552,61 @@ void IRAM_ATTR onSlotLargeInterrupt()  { slotLargeInterrupt  = true; }
 
 // Non-blocking solenoid: call startSolenoid() to open, loop() closes it via updateSolenoid()
 void startSolenoid() {
-  digitalWrite(SOLENOID_PIN, HIGH);
+  digitalWrite(SOLENOID_PIN, LOW); // active-low relay: LOW = energised = solenoid open
   solenoidOnAt = millis();
   solenoidActive = true;
 }
 
 void updateSolenoid() {
   if (solenoidActive && millis() - solenoidOnAt >= SOLENOID_PULSE_MS) {
-    digitalWrite(SOLENOID_PIN, LOW);
+    digitalWrite(SOLENOID_PIN, HIGH); // active-low relay: HIGH = de-energised = solenoid closed
     solenoidActive = false;
   }
 }
 
 void handleBottleInsert() {
+  // ── Webcam mode: skip ESP32 camera, set status="ready" for PC listener ──
+  if (WEBCAM_MODE) {
+    Serial.println("[RVM] webcam mode — setting status=ready for PC listener…");
+    if (!firestorePatchStatus("ready")) {
+      Serial.println("[RVM] failed to set status=ready");
+      return;
+    }
+    // Poll Firestore for AI result (same logic as after successful upload)
+    const unsigned long aiWaitStart = millis();
+    String aiStatus = "";
+    int pollCount = 0;
+    while (millis() - aiWaitStart < 10000UL) {
+      delay(400);
+      pollCount++;
+      MachineState latest;
+      if (firestoreGet(latest)) {
+        Serial.printf("[RVM] poll #%d (%.1fs): status=%s\n",
+          pollCount,
+          (millis() - aiWaitStart) / 1000.0f,
+          latest.status.c_str());
+        if (latest.status == "PROCESSING" || latest.status == "REJECTED") {
+          aiStatus = latest.status;
+          machineState = latest;
+          break;
+        }
+      }
+    }
+    if (aiStatus == "PROCESSING") {
+      startSolenoid();
+      Serial.println("[RVM] AI accepted → solenoid open");
+    } else if (aiStatus == "REJECTED") {
+      rejectUntil = millis() + REJECT_HOLD_MS;
+      Serial.println("[RVM] AI rejected bottle");
+    } else {
+      rejectUntil = millis() + REJECT_HOLD_MS;
+      firestorePatchStatus("REJECTED");
+      machineState.status = "REJECTED";
+      Serial.printf("[RVM] AI timeout after %d polls (10s) — defaulting to REJECT\n", pollCount);
+    }
+    return;
+  }
+
   if (CAMERA_ENABLED) {
     bool captured = false;
     bool uploaded = false;
@@ -685,8 +710,7 @@ void handleBottleInsert() {
 
 void setupPins() {
   pinMode(SOLENOID_PIN, OUTPUT);
-  digitalWrite(SOLENOID_PIN, LOW);
-  pinMode(SENSOR_PIN, INPUT_PULLUP);
+  digitalWrite(SOLENOID_PIN, HIGH); // active-low relay: HIGH = solenoid closed (safe default)
   pinMode(READY_BUTTON_PIN, INPUT_PULLUP);
   pinMode(SLOT_PIN_SMALL,  INPUT_PULLUP);
   pinMode(SLOT_PIN_MEDIUM, INPUT_PULLUP);
@@ -776,14 +800,6 @@ void loop() {
     if (machineState.status == "PROCESSING" && firestorePatchStatus("READY")) {
       machineState.status = "READY";
     }
-  }
-
-  if (!isSessionActive(machineState) && readSensorEdgeRaw()) {
-    if (firestorePatchStatus("IDLE")) {
-      machineState.status = "IDLE";
-    }
-    delay(80);
-    return;
   }
 
   if (!isSessionActive(machineState)) {

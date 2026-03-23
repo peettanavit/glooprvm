@@ -18,15 +18,17 @@
 
 // GPIO wiring — ตามวงจรที่ต่อจริง
 #define SOLENOID_PIN    38
-#define SENSOR_PIN      1
-#define SENSOR_ACTIVE_HIGH false
 #define READY_BUTTON_PIN 47
 #define SLOT_PIN_SMALL  14
-#define SLOT_PIN_MEDIUM 21
-#define SLOT_PIN_LARGE  47
+#define SLOT_PIN_MEDIUM  2
+#define SLOT_PIN_LARGE   3
 
-// Camera + upload endpoint
-// ใช้ Cloud Function URL นี้ได้เลย (ไม่ต้องแก้)
+// Camera mode
+// WEBCAM_MODE true  = ใช้ USB webcam บน PC (listener_webcam.py) — ESP32 ไม่ต้องถ่ายรูป
+// WEBCAM_MODE false = ใช้กล้อง OV5640 บน ESP32 (listener.py) — mode เดิม
+#define WEBCAM_MODE false
+
+// ใช้เฉพาะตอน WEBCAM_MODE false
 #define CAMERA_ENABLED true
 #define CF_UPLOAD_URL "https://us-central1-glooprvm.cloudfunctions.net/uploadBottleImage"
 #define CF_UPLOAD_API_KEY "YOUR_UPLOAD_API_KEY"
