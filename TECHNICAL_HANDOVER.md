@@ -2,6 +2,25 @@
 
 > Last updated: 2026-03-20 (3-slot support, camera quality, Firestore rules fix)
 > Architecture: Dual ESP32-S3 (Master / Slave) + Python AI Listener + Firebase
+> Runtime note (2026-03-24): **Production runs `ai_server/listener.py` only.**
+> `listener_webcam.py` is temporarily disabled and treated as non-production fallback.
+
+---
+
+## Runbook (Production)
+
+Use this on-site to avoid starting the wrong listener.
+
+```bash
+cd ai_server
+python listener.py
+```
+
+Do not start `listener_webcam.py` in production (temporary policy).
+
+Quick verify after start (expected log):
+- `Gloop AI Listener — watching machines collection for status=ready`
+- `Listener active. Press Ctrl+C to stop.`
 
 ---
 

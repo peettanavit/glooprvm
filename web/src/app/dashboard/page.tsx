@@ -10,6 +10,7 @@ import { assignMachineToUser, forceSetStatus, subscribeToMachine, subscribeToSor
 import { MachineStatusCard } from "@/components/machine-status-card";
 import { MachineWaitingAnimation } from "@/components/machine-waiting-animation";
 import { SortingHistoryTable } from "@/components/sorting-history-table";
+import { LiveSortingStatus } from "@/components/live-sorting-status";
 import { type MachineState } from "@/types/machine";
 
 function SystemStatusBadge({
@@ -264,6 +265,9 @@ export default function DashboardPage() {
         {!authReady && <MachineWaitingAnimation />}
 
         <MachineStatusCard status={machine.status} score={machine.session_score} />
+
+        {/* Live sorting overview for operator/user */}
+        <LiveSortingStatus />
 
         {/* Placement instruction + trigger — visible only when session is armed */}
         {machine.status === "READY" && machine.current_user === currentUid && (

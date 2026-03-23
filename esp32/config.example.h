@@ -26,6 +26,7 @@
 // Camera mode
 // WEBCAM_MODE true  = ใช้ USB webcam บน PC (listener_webcam.py) — ESP32 ไม่ต้องถ่ายรูป
 // WEBCAM_MODE false = ใช้กล้อง OV5640 บน ESP32 (listener.py) — mode เดิม
+// Production policy (temporary): keep WEBCAM_MODE=false (listener.py only)
 #define WEBCAM_MODE false
 
 // ใช้เฉพาะตอน WEBCAM_MODE false
