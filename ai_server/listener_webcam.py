@@ -116,8 +116,11 @@ _SAFETY_LOCK_THRESHOLD  = float(os.environ.get("AI_SAFETY_LOCK_THRESHOLD", "0.35
 # Class names must match label_model.pt — same as listener.py
 _LABEL_TO_RESULT: dict[str, int] = {
     "lipo_cap":  1,
+    "lipo":      1,   # alias: label_model may return without _cap suffix
     "cvitt_cap": 2,
+    "cvitt":     2,   # alias: label_model may return without _cap suffix
     "m150_cap":  3,
+    "m150":      3,   # alias: label_model may return without _cap suffix
 }
 
 _REJECT_CLASSES: frozenset[str] = frozenset({

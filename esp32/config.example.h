@@ -23,13 +23,7 @@
 #define SLOT_PIN_MEDIUM  2
 #define SLOT_PIN_LARGE   3
 
-// Camera mode
-// WEBCAM_MODE true  = ใช้ USB webcam บน PC (listener_webcam.py) — ESP32 ไม่ต้องถ่ายรูป
-// WEBCAM_MODE false = ใช้กล้อง OV5640 บน ESP32 (listener.py) — mode เดิม
-// Production policy (temporary): keep WEBCAM_MODE=false (listener.py only)
-#define WEBCAM_MODE false
-
-// ใช้เฉพาะตอน WEBCAM_MODE false
+// Camera (ใช้กับ Master_ESP32 เท่านั้น — Master_Webcam ไม่ต้องการส่วนนี้)
 #define CAMERA_ENABLED true
 #define CF_UPLOAD_URL "https://us-central1-glooprvm.cloudfunctions.net/uploadBottleImage"
 #define CF_UPLOAD_API_KEY "YOUR_UPLOAD_API_KEY"
