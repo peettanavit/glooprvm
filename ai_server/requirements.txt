@@ -7,8 +7,10 @@ numpy>=1.24.0
 firebase-admin>=6.5.0       # Auth, Firestore, Storage admin access
 google-cloud-firestore>=2.14.0  # explicit dep — listener.py imports transactional directly
 
-# ── HTTP server (server.py only — not needed for listener.py) ─────────────────
-flask>=3.0.0
+# ── HTTP servers ──────────────────────────────────────────────────────────────
+flask>=3.0.0                # server.py (legacy direct-upload endpoint)
+fastapi>=0.110.0            # api.py — AI service REST API
+uvicorn[standard]>=0.29.0   # ASGI server for api.py
 
 # ── Utilities ─────────────────────────────────────────────────────────────────
 python-dotenv>=1.0.0        # loads .env into os.environ

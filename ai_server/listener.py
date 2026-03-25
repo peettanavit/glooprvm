@@ -38,6 +38,7 @@ Required env vars (see .env.example):
 import os
 import time
 import logging
+import threading
 import cv2
 import numpy as np
 from dotenv import load_dotenv
@@ -45,6 +46,7 @@ import firebase_admin
 from firebase_admin import credentials, firestore, storage
 from google.cloud.firestore_v1.transaction import transactional
 from ultralytics import YOLO
+from config_manager import ConfigManager
 
 load_dotenv()
 
@@ -65,6 +67,19 @@ firebase_admin.initialize_app(cred, {"storageBucket": _bucket_name})
 db     = firestore.client()
 bucket = storage.bucket()
 
+# ── Dynamic config (replaces static .env thresholds) ─────────────────────────
+_config = ConfigManager(db, os.environ.get("MACHINE_ID", "Gloop_01"))
+
+# ── Service state (read by api.py for /health and /status) ───────────────────
+service_state: dict = {
+    "started_at":       time.time(),
+    "total_processed":  0,
+    "last_processed_at": None,
+    "last_detection":   None,
+    "listener_alive":   False,
+}
+_state_lock = threading.Lock()
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # YOLO Model loading (once at startup)
@@ -77,17 +92,9 @@ _cap_model   = YOLO(os.path.join(_MODEL_DIR, "cap_model.pt"))
 log.info("[AI] Models loaded. Label classes: %s", _label_model.names)
 log.info("[AI] Cap classes: %s", _cap_model.names)
 
-# Minimum confidence to act on any detection (accept OR reject)
-_CONFIDENCE_THRESHOLD = float(os.environ.get("AI_CONFIDENCE_THRESHOLD", "0.5"))
-
-# Safety Lock: if label_model top confidence is below this floor, reject
-# immediately without attempting class-level decisions.  Prevents the AI from
-# "guessing" on blurry / occluded images where any class assignment is noise.
-_SAFETY_LOCK_THRESHOLD = float(os.environ.get("AI_SAFETY_LOCK_THRESHOLD", "0.35"))
-
-# Seconds to wait for Slave ESP32 cap image before falling back to single-cam mode.
-# 1.5 s is enough for a typical WiFi upload; raise if your network is slow.
-_CAP_WAIT_S = float(os.environ.get("CAP_WAIT_SECONDS", "1.5"))
+# NOTE: AI_CONFIDENCE_THRESHOLD, AI_SAFETY_LOCK_THRESHOLD, CAP_WAIT_SECONDS
+# are now fetched dynamically from Firestore via _config.get_float().
+# .env values are kept as startup fallbacks only (loaded into _config defaults).
 
 # ── Accepted classes — mapped to ESP32 result codes ──────────────────────────
 # Order matches physical sorting slots: 1 = smallest, 3 = largest.
@@ -126,7 +133,24 @@ def _top_detection(results) -> tuple[str, float]:
     return name, conf
 
 
-def detect_bottle(label_bytes: bytes, cap_bytes: bytes | None) -> dict:
+def _all_scores(results) -> dict[str, float]:
+    """Return {class_name: best_confidence} for every detected box."""
+    scores: dict[str, float] = {}
+    for i in range(len(results.boxes)):
+        name = results.names[int(results.boxes.cls[i].item())]
+        conf = round(float(results.boxes.conf[i].item()), 4)
+        if name not in scores or conf > scores[name]:
+            scores[name] = conf
+    return scores
+
+
+def detect_bottle(
+    label_bytes: bytes,
+    cap_bytes: bytes | None,
+    *,
+    conf_threshold: float,
+    safety_lock_threshold: float,
+) -> dict:
     """
     Primary:   label_model  on label_bytes  (Master ESP32 — side/label camera).
     Validator: cap_model    on cap_bytes    (Slave  ESP32 — top/cap camera).
@@ -143,14 +167,17 @@ def detect_bottle(label_bytes: bytes, cap_bytes: bytes | None) -> dict:
       7. Anything else                                       → REJECTED
 
     Returns a dict with:
-        valid       (bool)        — True → "PROCESSING", False → "REJECTED"
-        result      (int | None)  — 1 (lipo_cap) / 2 (cvitt_cap) / 3 (m150_cap)
-        ai_label    (str)         — label_model top class name
-        ai_conf     (float)       — label_model top confidence (0–1)
-        cap_name    (str)         — cap_model top class name, or "no_image" if skipped
-        cap_conf    (float)       — cap_model top confidence (0–1), or 0.0 if skipped
-        dual_cam    (bool)        — True if Slave image was used in this decision
-        reason      (str)         — human-readable explanation for logs
+        valid              (bool)        — True → "PROCESSING", False → "REJECTED"
+        result             (int | None)  — 1 / 2 / 3
+        ai_label           (str)
+        ai_conf            (float)
+        cap_name           (str)
+        cap_conf           (float)
+        dual_cam           (bool)
+        reason             (str)
+        label_all_scores   (dict)        — {class: conf} for all label_model detections
+        cap_all_scores     (dict)        — {class: conf} for all cap_model detections
+        rescued_by_slave   (bool)        — True when Step 6 (slave rescue) triggered
     """
     # ── Step 1: Decode label image (required) ─────────────────────────────────
     nparr     = np.frombuffer(label_bytes, np.uint8)
@@ -161,19 +188,26 @@ def detect_bottle(label_bytes: bytes, cap_bytes: bytes | None) -> dict:
             "ai_label": "decode_error", "ai_conf": 0.0,
             "cap_name": "no_image",     "cap_conf": 0.0,
             "dual_cam": False,
+            "label_all_scores": {}, "cap_all_scores": {},
+            "rescued_by_slave": False,
             "reason": "could not decode label image bytes (Master)",
         }
 
     # ── Run label model (primary) ─────────────────────────────────────────────
-    ai_label, ai_conf = _top_detection(_label_model(label_img, verbose=False)[0])
+    label_results   = _label_model(label_img, verbose=False)[0]
+    ai_label, ai_conf = _top_detection(label_results)
+    label_all_scores  = _all_scores(label_results)
 
     # ── Decode + run cap model (Slave — only when image is available) ─────────
     cap_name, cap_conf, dual_cam = "no_image", 0.0, False
+    cap_all_scores: dict[str, float] = {}
     if cap_bytes is not None:
         nparr   = np.frombuffer(cap_bytes, np.uint8)
         cap_img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         if cap_img is not None:
-            cap_name, cap_conf = _top_detection(_cap_model(cap_img, verbose=False)[0])
+            cap_results            = _cap_model(cap_img, verbose=False)[0]
+            cap_name, cap_conf     = _top_detection(cap_results)
+            cap_all_scores         = _all_scores(cap_results)
             dual_cam = True
         else:
             cap_name = "decode_error"
@@ -182,118 +216,68 @@ def detect_bottle(label_bytes: bytes, cap_bytes: bytes | None) -> dict:
     log.info("[YOLO] label=%s(%.2f)  cap=%s(%.2f)  dual_cam=%s",
              ai_label, ai_conf, cap_name, cap_conf, dual_cam)
 
-    # ── Safety Lock: hard floor on label confidence ────────────────────────────
-    # Fires before any class-specific logic.  A detection this weak is
-    # statistically indistinguishable from noise — never accept or route it.
-    if ai_conf < _SAFETY_LOCK_THRESHOLD:
-        log.warning("[SAFETY_LOCK] ai_conf=%.2f below %.2f — hard REJECTED",
-                    ai_conf, _SAFETY_LOCK_THRESHOLD)
+    # Helper: build a base return dict to avoid repetition
+    def _base(valid, result, reason, rescued=False):
         return {
-            "valid":    False,
-            "result":   None,
-            "ai_label": ai_label,
-            "ai_conf":  ai_conf,
-            "cap_name": cap_name,
-            "cap_conf": cap_conf,
+            "valid": valid, "result": result,
+            "ai_label": ai_label, "ai_conf": ai_conf,
+            "cap_name": cap_name, "cap_conf": cap_conf,
             "dual_cam": dual_cam,
-            "reason":   "Low confidence",
+            "label_all_scores": label_all_scores,
+            "cap_all_scores":   cap_all_scores,
+            "rescued_by_slave": rescued,
+            "reason": reason,
         }
+
+    # ── Safety Lock: hard floor on label confidence ────────────────────────────
+    if ai_conf < safety_lock_threshold:
+        log.warning("[SAFETY_LOCK] ai_conf=%.2f below %.2f — hard REJECTED",
+                    ai_conf, safety_lock_threshold)
+        return _base(False, None, "Low confidence")
 
     # ── Step 2: label_model negative-filter check ─────────────────────────────
-    if ai_label in _REJECT_CLASSES and ai_conf >= _CONFIDENCE_THRESHOLD:
-        return {
-            "valid": False, "result": None,
-            "ai_label": ai_label, "ai_conf": ai_conf,
-            "cap_name": cap_name, "cap_conf": cap_conf,
-            "dual_cam": dual_cam,
-            "reason": f"label_model flagged reject class '{ai_label}' (conf={ai_conf:.2f})",
-        }
+    if ai_label in _REJECT_CLASSES and ai_conf >= conf_threshold:
+        return _base(False, None,
+                     f"label_model flagged reject class '{ai_label}' (conf={ai_conf:.2f})")
 
     # ── Step 3: cap_model validator veto (dual-cam only) ──────────────────────
-    if dual_cam and cap_name in _REJECT_CLASSES and cap_conf >= _CONFIDENCE_THRESHOLD:
-        return {
-            "valid": False, "result": None,
-            "ai_label": ai_label, "ai_conf": ai_conf,
-            "cap_name": cap_name, "cap_conf": cap_conf,
-            "dual_cam": dual_cam,
-            "reason": (
-                f"cap_model vetoed '{ai_label}': "
-                f"detected reject class '{cap_name}' (conf={cap_conf:.2f})"
-            ),
-        }
+    if dual_cam and cap_name in _REJECT_CLASSES and cap_conf >= conf_threshold:
+        return _base(False, None,
+                     f"cap_model vetoed '{ai_label}': "
+                     f"detected reject class '{cap_name}' (conf={cap_conf:.2f})")
 
     # ── Step 4: Accept check (label_model primary) ────────────────────────────
     result_code = _LABEL_TO_RESULT.get(ai_label)
 
     if result_code is None:
-        return {
-            "valid": False, "result": None,
-            "ai_label": ai_label, "ai_conf": ai_conf,
-            "cap_name": cap_name, "cap_conf": cap_conf,
-            "dual_cam": dual_cam,
-            "reason": (
-                f"label_model returned '{ai_label}' — not in accepted or reject classes"
-                if ai_label != "none"
-                else "label_model found no detection"
-            ),
-        }
+        return _base(False, None,
+                     f"label_model returned '{ai_label}' — not in accepted or reject classes"
+                     if ai_label != "none" else "label_model found no detection")
 
     # ── Step 5: Master confident enough → accept directly ─────────────────────
-    # Slave already had its veto chance in Step 4; no further slave check needed.
-    if ai_conf >= _CONFIDENCE_THRESHOLD:
-        mode = (
-            f"dual-cam validator='{cap_name}'({cap_conf:.2f})"
-            if dual_cam else
-            "single-cam (Slave offline or timed out)"
-        )
-        return {
-            "valid":    True,
-            "result":   result_code,
-            "ai_label": ai_label,
-            "ai_conf":  ai_conf,
-            "cap_name": cap_name,
-            "cap_conf": cap_conf,
-            "dual_cam": dual_cam,
-            "reason":   f"accepted '{ai_label}' conf={ai_conf:.2f} [{mode}]",
-        }
+    if ai_conf >= conf_threshold:
+        mode = (f"dual-cam validator='{cap_name}'({cap_conf:.2f})"
+                if dual_cam else "single-cam (Slave offline or timed out)")
+        return _base(True, result_code,
+                     f"accepted '{ai_label}' conf={ai_conf:.2f} [{mode}]")
 
     # ── Step 6: Slave rescue — master below threshold, slave can compensate ───
-    # Slave must agree on the same bottle type AND be confident enough.
-    # (cap_name is guaranteed not a reject class — Step 4 would have returned.)
     if dual_cam:
         slave_result = _LABEL_TO_RESULT.get(cap_name)
-        if slave_result == result_code and cap_conf >= _CONFIDENCE_THRESHOLD:
+        if slave_result == result_code and cap_conf >= conf_threshold:
             log.info("[YOLO] slave rescue: master '%s'(%.2f) < %.2f, slave '%s'(%.2f) agrees",
-                     ai_label, ai_conf, _CONFIDENCE_THRESHOLD, cap_name, cap_conf)
-            return {
-                "valid":    True,
-                "result":   result_code,
-                "ai_label": ai_label,
-                "ai_conf":  ai_conf,
-                "cap_name": cap_name,
-                "cap_conf": cap_conf,
-                "dual_cam": dual_cam,
-                "reason":   (
-                    f"accepted '{ai_label}' via slave rescue: "
-                    f"master={ai_conf:.2f} slave='{cap_name}'({cap_conf:.2f})"
-                ),
-            }
+                     ai_label, ai_conf, conf_threshold, cap_name, cap_conf)
+            return _base(True, result_code,
+                         f"accepted '{ai_label}' via slave rescue: "
+                         f"master={ai_conf:.2f} slave='{cap_name}'({cap_conf:.2f})",
+                         rescued=True)
 
     # ── Rejected — master insufficient, slave could not rescue ────────────────
-    slave_note = (
-        f"; slave '{cap_name}'({cap_conf:.2f}) did not rescue"
-        if dual_cam else ""
-    )
-    return {
-        "valid": False, "result": None,
-        "ai_label": ai_label, "ai_conf": ai_conf,
-        "cap_name": cap_name, "cap_conf": cap_conf,
-        "dual_cam": dual_cam,
-        "reason": (
-            f"'{ai_label}' master conf {ai_conf:.2f} below threshold "
-            f"{_CONFIDENCE_THRESHOLD}{slave_note}"
-        ),
-    }
+    slave_note = (f"; slave '{cap_name}'({cap_conf:.2f}) did not rescue"
+                  if dual_cam else "")
+    return _base(False, None,
+                 f"'{ai_label}' master conf {ai_conf:.2f} below threshold "
+                 f"{conf_threshold}{slave_note}")
 
 
 def _wait_for_cap_path(machine_ref, initial_data: dict) -> str | None:
@@ -301,7 +285,7 @@ def _wait_for_cap_path(machine_ref, initial_data: dict) -> str | None:
     Returns last_capture.cap_storage_path when available.
 
     Checks the initial snapshot first (zero-latency if Slave already uploaded).
-    If not present, polls Firestore every 200 ms for up to _CAP_WAIT_S seconds.
+    If not present, polls Firestore every 200 ms for up to CAP_WAIT_SECONDS.
     Returns None if the Slave didn't upload within the window — caller proceeds
     in single-cam mode.
     """
@@ -310,8 +294,9 @@ def _wait_for_cap_path(machine_ref, initial_data: dict) -> str | None:
         log.info("[CAM] Slave image already present in snapshot")
         return cap_path
 
-    log.info("[CAM] Waiting up to %.1fs for Slave ESP32 cap image…", _CAP_WAIT_S)
-    deadline = time.monotonic() + _CAP_WAIT_S
+    cap_wait_s = _config.get_float("CAP_WAIT_SECONDS")
+    log.info("[CAM] Waiting up to %.1fs for Slave ESP32 cap image…", cap_wait_s)
+    deadline = time.monotonic() + cap_wait_s
     while time.monotonic() < deadline:
         time.sleep(0.2)
         snap     = machine_ref.get()
@@ -320,7 +305,7 @@ def _wait_for_cap_path(machine_ref, initial_data: dict) -> str | None:
             log.info("[CAM] Slave image arrived: %s", cap_path)
             return cap_path
 
-    log.info("[CAM] Slave image not received within %.1fs — single-cam mode", _CAP_WAIT_S)
+    log.info("[CAM] Slave image not received within %.1fs — single-cam mode", cap_wait_s)
     return None
 
 
@@ -392,9 +377,17 @@ def process_machine(machine_id: str, data: dict):
             cap_bytes = bucket.blob(cap_path).download_as_bytes()
             log.info(f"[{machine_id}] cap image: {len(cap_bytes):,} bytes")
 
-        # 3. Run AI models
-        detection  = detect_bottle(label_bytes, cap_bytes)
-        log.info(f"[{machine_id}] detection: {detection}")
+        # 3. Run AI models — measure inference latency
+        conf_threshold    = _config.get_float("AI_CONFIDENCE_THRESHOLD")
+        safety_lock_thr   = _config.get_float("AI_SAFETY_LOCK_THRESHOLD")
+        t0 = time.monotonic()
+        detection = detect_bottle(
+            label_bytes, cap_bytes,
+            conf_threshold=conf_threshold,
+            safety_lock_threshold=safety_lock_thr,
+        )
+        inference_ms = round((time.monotonic() - t0) * 1000, 1)
+        log.info(f"[{machine_id}] detection ({inference_ms} ms): {detection}")
 
         is_valid   = detection["valid"]
         new_status = "PROCESSING" if is_valid else "REJECTED"
@@ -413,6 +406,7 @@ def process_machine(machine_id: str, data: dict):
             "last_capture.cap_conf":         detection["cap_conf"],
             "last_capture.dual_cam":         detection["dual_cam"],
             "last_capture.reason":           detection["reason"],
+            "last_capture.inference_ms":     inference_ms,
             "last_capture.cap_storage_path": firestore.DELETE_FIELD,
             "updatedAt":                     firestore.SERVER_TIMESTAMP,
         }
@@ -421,26 +415,49 @@ def process_machine(machine_id: str, data: dict):
 
         machine_ref.update(update_payload)
 
-        # 5. Write sorting log for valid bottles
-        if is_valid:
-            db.collection("logs").add({
-                "machine_id":  machine_id,
-                "bottle_type": detection["ai_label"],  # web SortingHistoryTable reads this field
-                "result":      detection["result"],
-                "ai_label":    detection["ai_label"],
-                "ai_conf":     detection["ai_conf"],
-                "cap_name":    detection["cap_name"],
-                "cap_conf":    detection["cap_conf"],
-                "dual_cam":    detection["dual_cam"],
-                "user_id":     data.get("current_user", ""),
-                "session_id":  data.get("session_id", "unknown"),
-                "sorted_at":   firestore.SERVER_TIMESTAMP,
-            })
+        # 5. Write inference log for ALL bottles (valid + rejected) with full telemetry
+        db.collection("logs").add({
+            "machine_id":         machine_id,
+            "bottle_type":        detection["ai_label"],  # web SortingHistoryTable reads this field
+            "result":             detection.get("result"),
+            "valid":              is_valid,
+            "ai_label":           detection["ai_label"],
+            "ai_conf":            detection["ai_conf"],
+            "cap_name":           detection["cap_name"],
+            "cap_conf":           detection["cap_conf"],
+            "dual_cam":           detection["dual_cam"],
+            "rescued_by_slave":   detection["rescued_by_slave"],
+            "reason":             detection["reason"],
+            # Inference telemetry
+            "inference_ms":       inference_ms,
+            "label_all_scores":   detection["label_all_scores"],
+            "cap_all_scores":     detection["cap_all_scores"],
+            # Config snapshot at time of inference (for reproducibility)
+            "conf_threshold":     conf_threshold,
+            "safety_lock_thr":    safety_lock_thr,
+            "user_id":            data.get("current_user", ""),
+            "session_id":         data.get("session_id", "unknown"),
+            "sorted_at":          firestore.SERVER_TIMESTAMP,
+        })
+
+        # 6. Update service state for /status endpoint
+        with _state_lock:
+            service_state["total_processed"]  += 1
+            service_state["last_processed_at"] = time.time()
+            service_state["last_detection"]    = {
+                "machine_id":   machine_id,
+                "valid":        is_valid,
+                "ai_label":     detection["ai_label"],
+                "ai_conf":      detection["ai_conf"],
+                "dual_cam":     detection["dual_cam"],
+                "inference_ms": inference_ms,
+                "status":       new_status,
+            }
 
         log.info(
             f"[{machine_id}] → status={new_status}  label={detection['ai_label']}  "
             f"result={detection.get('result')}  conf={detection['ai_conf']:.2f}  "
-            f"dual_cam={detection['dual_cam']}"
+            f"dual_cam={detection['dual_cam']}  latency={inference_ms}ms"
         )
 
     except Exception as exc:
@@ -482,16 +499,29 @@ def on_machines_snapshot(col_snapshot, changes, read_time):
 # Entry point
 # ─────────────────────────────────────────────────────────────────────────────
 
-def main():
+def start_listener():
+    """
+    Start the Firestore watch in the background (non-blocking).
+    Returns the watch handle so the caller can unsubscribe later.
+    Safe to call from api.py — does not block.
+    """
+    with _state_lock:
+        service_state["listener_alive"] = True
     log.info("Gloop AI Listener — watching machines collection for status=ready")
     watch = db.collection("machines").on_snapshot(on_machines_snapshot)
-    log.info("Listener active. Press Ctrl+C to stop.")
+    log.info("Listener active.")
+    return watch
 
+
+def main():
+    watch = start_listener()
     try:
         while True:
             time.sleep(1)
     except KeyboardInterrupt:
         log.info("Shutting down…")
+        with _state_lock:
+            service_state["listener_alive"] = False
         watch.unsubscribe()
 
 
