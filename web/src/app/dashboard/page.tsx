@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { Alert, Button, Spinner } from "@heroui/react";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth } from "@/lib/firebase";
-import { assignMachineToUser, forceSetStatus, subscribeToMachine, subscribeToSortingLogs, triggerCapture, type SortingLog } from "@/lib/machine";
+import { assignMachineToUser, clearTrigger, forceSetStatus, subscribeToMachine, subscribeToSortingLogs, triggerCapture, type SortingLog } from "@/lib/machine";
 import { MachineStatusCard } from "@/components/machine-status-card";
 import { MachineWaitingAnimation } from "@/components/machine-waiting-animation";
 import { SortingHistoryTable } from "@/components/sorting-history-table";
@@ -236,6 +236,29 @@ export default function DashboardPage() {
       setTriggering(false);
     }
   };
+
+  // Auto-clear trigger_source if ESP32 doesn't respond within 20 seconds
+  useEffect(() => {
+    if (!machine.trigger_source) return;
+
+    const timeout = setTimeout(async () => {
+      try { await clearTrigger(); } catch { /* ignore */ }
+      setTriggerError("กล้องไม่ตอบสนอง กรุณาลองใหม่");
+    }, 20_000);
+
+    return () => clearTimeout(timeout);
+  }, [machine.trigger_source]);
+
+  // Auto-recover from PROCESSING if slot sensor never fires within 35 seconds
+  useEffect(() => {
+    if (machine.status !== "PROCESSING") return;
+
+    const timeout = setTimeout(async () => {
+      try { await forceSetStatus("READY"); } catch { /* ignore */ }
+    }, 35_000);
+
+    return () => clearTimeout(timeout);
+  }, [machine.status]);
 
   // Reset trigger UI state once machine leaves READY (AI is running or done)
   const prevStatusRef = useRef(machine.status);

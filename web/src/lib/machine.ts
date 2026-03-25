@@ -87,6 +87,10 @@ export async function triggerCapture(source: "web" | "button" = "web"): Promise<
   });
 }
 
+export async function clearTrigger(): Promise<void> {
+  await updateDoc(machineRef, { trigger_source: "", updatedAt: serverTimestamp() });
+}
+
 export async function restartSlave(): Promise<void> {
   await updateDoc(machineRef, {
     slave_restart: true,
