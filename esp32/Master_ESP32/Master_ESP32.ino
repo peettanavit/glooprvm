@@ -697,12 +697,11 @@ void handleBottleInsert() {
     Serial.println("[RVM] camera/upload failed, using local logic");
   }
 
-  // No camera or upload failed: accept unconditionally (no AI check)
-  startSolenoid();
-  if (firestorePatchStatus("PROCESSING")) {
-    machineState.status = "PROCESSING";
-    Serial.println("[RVM] bottle accepted (no AI), status->PROCESSING");
-  }
+  // Camera unavailable or upload failed — reject for safety (no AI = no sorting)
+  Serial.println("[RVM] camera/upload failed — defaulting to REJECT");
+  rejectUntil = millis() + REJECT_HOLD_MS;
+  firestorePatchStatus("REJECTED");
+  machineState.status = "REJECTED";
 }
 
 void setupPins() {
