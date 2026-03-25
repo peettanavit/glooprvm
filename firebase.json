@@ -11,7 +11,7 @@
     "runtime": "nodejs20"
   },
   "hosting": {
-    "predeploy": ["cd web && npm run build"],
+    "predeploy": ["node scripts/predeploy-check.js", "cd web && npm run build"],
     "public": "web/out",
     "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
     "headers": [

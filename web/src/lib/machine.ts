@@ -33,7 +33,8 @@ export async function assignMachineToUser(uid: string): Promise<void> {
     const current = snapshot.data() as MachineState | undefined;
     const currentUser = current?.current_user ?? "";
     const currentStatus = current?.status ?? "IDLE";
-    const hasActiveSession = currentStatus === "READY" || currentStatus === "PROCESSING" || currentStatus === "REJECTED";
+    const hasActiveSession = currentStatus === "READY" || currentStatus === "PROCESSING" || currentStatus === "REJECTED"
+      || (currentStatus as string) === "ready" || (currentStatus as string) === "processing_ai";
 
     if (currentUser === uid && hasActiveSession) {
       return;
