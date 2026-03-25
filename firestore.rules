@@ -29,6 +29,9 @@ service cloud.firestore {
         && request.resource.data.session_score == 0;
 
       allow update: if isSignedIn() && (
+        // Admin can reset any machine unconditionally.
+        isAdmin()
+        ||
         // Active owner can update machine state but cannot inflate session_score.
         (resource.data.current_user == request.auth.uid
           && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['session_score'])
