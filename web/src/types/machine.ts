@@ -18,7 +18,7 @@ export interface MachineState {
   session_id?: string;
   slotCounts?: SlotCounts;
   // Explicit capture trigger — "" means no trigger pending.
-  // Sources: "web" (manual), "button" (next phase), "sensor" (future).
+  // Source: "web" (user presses button on dashboard).
   trigger_source?: string;
 }
 

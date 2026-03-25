@@ -21,7 +21,7 @@ const labelByStatus: Record<MachineStatus, string> = {
 
 const descByStatus: Record<MachineStatus, string> = {
   IDLE: "เครื่องว่างอยู่ รอผู้ใช้งาน",
-  READY: "ใส่ขวดได้เลย",
+  READY: "วางขวดให้ฉลากชัด แล้วกดถ่ายรูป",
   PROCESSING: "กำลังรับขวด รอสักครู่...",
   REJECTED: "ขวดไม่ผ่านการตรวจสอบ",
   COMPLETED: "เซสชันเสร็จสิ้น",
