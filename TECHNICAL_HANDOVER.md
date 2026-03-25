@@ -1,356 +1,264 @@
 # Gloop RVM — Technical Handover Document
 
-> Last updated: 2026-03-20 (3-slot support, camera quality, Firestore rules fix)
+> Last updated: 2026-03-25 (Pass 4 — telemetry, EMI fixes, FastAPI, dynamic config)
 > Architecture: Dual ESP32-S3 (Master / Slave) + Python AI Listener + Firebase
-> Runtime note (2026-03-24): **Production runs `ai_server/listener.py` only.**
-> `listener_webcam.py` is temporarily disabled and treated as non-production fallback.
-
----
-
-## Runbook (Production)
-
-Use this on-site to avoid starting the wrong listener.
-
-```bash
-cd ai_server
-python listener.py
-```
-
-Do not start `listener_webcam.py` in production (temporary policy).
-
-Quick verify after start (expected log):
-- `Gloop AI Listener — watching machines collection for status=ready`
-- `Listener active. Press Ctrl+C to stop.`
 
 ---
 
 ## 1. Current System Workflow
 
 ```
-┌──────────────────────────────────────────────────────────────────────────┐
-│  User opens Web App → assignMachineToUser() → status: "READY"           │
-└─────────────────────────────────────┬────────────────────────────────────┘
-                                      │
-                    ┌─────────────────▼─────────────────┐
-                    │  Master ESP32  (side / label cam)  │
-                    │  • Detects bottle via sensor        │
-                    │  • Captures label image             │
-                    │  • POST /uploadBottleImage  (CF)    │
-                    └─────────────────┬─────────────────┘
-                                      │  CF writes:
-                                      │    status = "ready"
-                                      │    last_capture.label_storage_path
-                                      │
-                    ┌─────────────────▼─────────────────┐
-                    │  Slave ESP32   (top / cap cam)     │
-                    │  • Captures cap image independently │
-                    │  • Writes last_capture.            │
-                    │    cap_storage_path  (async)       │
-                    │  Arrives within ~0–1.5 s of Master │
-                    └─────────────────┬─────────────────┘
-                                      │
-                    ┌─────────────────▼─────────────────┐
-                    │  listener.py  (Python AI service)  │
-                    │                                     │
-                    │  1. Detects status = "ready"        │
-                    │  2. Claims doc (transaction):       │
-                    │       → "processing_ai"             │
-                    │  3. Downloads label image           │
-                    │  4. Waits ≤ 1.5 s for cap image    │
-                    │  5. detect_bottle(label, cap|None)  │
-                    │  6. Writes result:                  │
-                    │       status → PROCESSING | REJECTED│
-                    │       result → 1 | 2 | 3            │
-                    │       (deletes cap_storage_path)    │
-                    └─────────────────┬─────────────────┘
-                                      │
-                    ┌─────────────────▼─────────────────┐
-                    │  Master ESP32  (reads result)      │
-                    │  Polls every 400 ms (10 s timeout) │
-                    │                                     │
-                    │  PROCESSING → solenoid OPEN        │
-                    │               bottle drops through  │
-                    │                                     │
-                    │  REJECTED   → solenoid CLOSED      │
-                    │               hold for 1.2 s        │
-                    └─────────────────┬─────────────────┘
-                                      │
-                    ┌─────────────────▼─────────────────┐
-                    │  Master ESP32  (slot sensor)       │
-                    │  Bottle physically drops           │
-                    │  firestoreSlotEvent("SMALL")       │
-                    │    → session_score += 1            │
-                    │    → status = "READY"              │
-                    └────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────┐
+│  User opens Web App → assignMachineToUser() → status: "READY"          │
+└────────────────────────────────┬────────────────────────────────────────┘
+                                 │
+                 ┌───────────────▼───────────────┐
+                 │  Master ESP32  (label cam)     │
+                 │  • trigger_source set by web   │
+                 │  • Captures label JPEG         │
+                 │  • POST /uploadBottleImage     │
+                 │    CF: status="ready"          │
+                 │        label_storage_path=...  │
+                 └───────────────┬───────────────┘
+                                 │
+                 ┌───────────────▼───────────────┐
+                 │  Slave ESP32  (cap cam)        │
+                 │  CURRENTLY OFFLINE             │
+                 │  When online: uploads cap img  │
+                 │  → cap_storage_path (async)    │
+                 └───────────────┬───────────────┘
+                                 │
+                 ┌───────────────▼───────────────┐
+                 │  listener.py  (AI service)     │
+                 │                                │
+                 │  1. Sees status="ready"        │
+                 │  2. Claims → "processing_ai"   │
+                 │  3. Downloads label image      │
+                 │  4. Waits ≤ CAP_WAIT_SECONDS   │
+                 │     for cap image (now=0s)     │
+                 │  5. detect_bottle(...)         │
+                 │  6. Writes result + telemetry  │
+                 │     → PROCESSING | REJECTED    │
+                 │     → inference_ms, all_scores │
+                 └───────────────┬───────────────┘
+                                 │
+                 ┌───────────────▼───────────────┐
+                 │  Master ESP32  (reads result)  │
+                 │  Polls every 200ms (10s max)   │
+                 │                                │
+                 │  PROCESSING → solenoid 600ms   │
+                 │  REJECTED   → hold 1.2s        │
+                 └───────────────┬───────────────┘
+                                 │ (after SLOT_GUARD_MS = 1000ms)
+                 ┌───────────────▼───────────────┐
+                 │  Limit Switch fires            │
+                 │  firestoreSlotEvent(SIZE)      │
+                 │  → score++, slotCounts++       │
+                 │  → status = "READY"            │
+                 └────────────────────────────────┘
 ```
 
-**Key rule:** Slave ESP32 is upload-only. It **never** reads Firestore status and never touches the solenoid.
+**Key rules:**
+- Slave ESP32 is upload-only. Never reads status, never touches solenoid.
+- PROCESSING stays until a **limit switch** confirms the bottle physically dropped.
+- Camera failure → REJECT every bottle (no blind accepts).
 
 ---
 
-## 2. Firestore Schema — `machines/{machineId}`
-
-### Top-level fields
-
-| Field | Type | Set by | Description |
-|---|---|---|---|
-| `status` | string | All layers | See state machine below |
-| `current_user` | string | Web | Firebase Auth UID of active user |
-| `session_id` | string | Web | `YYYYMMDD-HHMMSS-xxxx` format (e.g. `20260320-065205-a3b4`), new per session |
-| `session_score` | number | Master ESP32 | Increments by 1/2/3 (SMALL/MEDIUM/LARGE) per accepted bottle |
-| `slotCounts.SMALL` | number | Master ESP32 | Cumulative bottle count for Small slot (Lipoviton) — persists across sessions |
-| `slotCounts.MEDIUM` | number | Master ESP32 | Cumulative bottle count for Medium slot (C-Vitt) — persists across sessions |
-| `slotCounts.LARGE` | number | Master ESP32 | Cumulative bottle count for Large slot (M-150) — persists across sessions |
-| `lastSlotEvent.size` | string | Master ESP32 | Last slot that fired: `"SMALL"` / `"MEDIUM"` / `"LARGE"` |
-| `lastSlotEvent.timestamp` | timestamp | Master ESP32 | Server timestamp of last slot event |
-| `result` | number | listener.py | `1`=lipo_cap / `2`=cvitt_cap / `3`=m150_cap — written on PROCESSING only |
-| `slave_restart` | bool | Web (`restartSlave()`) | Admin sets `true` → Slave detects on next poll, clears flag, calls `ESP.restart()` |
-| `updatedAt` | timestamp | All layers | Server timestamp |
-
-### `last_capture` sub-map (new dual-cam fields)
-
-| Field | Type | Set by | Description |
-|---|---|---|---|
-| `label_storage_path` | string | Cloud Function | GCS path to Master (side/label) image |
-| `cap_storage_path` | string | Slave ESP32 | GCS path to Slave (top/cap) image — **deleted by listener.py after each scan** |
-| `path` | string | Cloud Function | Full `gs://` URI (legacy) |
-| `captured_at` | timestamp | Cloud Function | When Master uploaded |
-| `valid` | bool | listener.py | `true` = accepted |
-| `ai_label` | string | listener.py | label_model top class (e.g. `"lipo_cap"`) |
-| `ai_conf` | float | listener.py | label_model confidence 0.0–1.0 |
-| `cap_name` | string | listener.py | cap_model top class, or `"no_image"` if Slave offline |
-| `cap_conf` | float | listener.py | cap_model confidence, or `0.0` if Slave offline |
-| `dual_cam` | bool | listener.py | `true` = both cameras used; `false` = single-cam fallback |
-| `reason` | string | listener.py | Human-readable decision explanation |
-
-### Status state machine
-
-```
-"IDLE"           ← resetMachine() / resetStaleSessions watchdog
-    │
-    ▼  assignMachineToUser()
-"READY"          ← also set by: firestoreSlotEvent(), ESP32 after reject hold
-    │
-    ▼  Cloud Function uploadBottleImage
-"ready"          (lowercase — Python listener trigger)
-    │
-    ▼  _claim_if_ready() transaction
-"processing_ai"  (Python working — anti-double-process lock)
-    │
-    ├──▶  "PROCESSING"  ← AI accepted  → Master opens solenoid
-    │                                     slot sensor → "READY"
-    │
-    └──▶  "REJECTED"    ← AI rejected  → solenoid stays closed
-                                          ESP32 waits 1.2 s → "READY"
-
-"COMPLETED"      ← Web end-session button → summary page → "IDLE"
-```
-
----
-
-## 3. AI Decision Logic (`ai_server/listener.py`)
-
-### Model files
-
-| File | Purpose | Handles |
-|---|---|---|
-| `models/label_model.pt` | Primary decision | Reads bottle label (side view) |
-| `models/cap_model.pt` | Validator / veto | Reads bottle cap (top view) |
-
-Both models share the same 7 classes:
-`cvitt_cap`, `ginseng_cap`, `lipo_cap`, `m-sport_cap`, `m150_cap`, `peptein_cap`, `shark_cap`
-
-### Class mappings
-
-**Accepted → ESP32 result code**
-
-| Class | Result | Brand | Physical slot |
-|---|---|---|---|
-| `lipo_cap` | **1** | Lipoviton | Small — sorts first |
-| `cvitt_cap` | **2** | C-Vitt | Medium — sorts second |
-| `m150_cap` | **3** | M-150 | Large — sorts last |
-
-**Rejected (negative filter) — always REJECTED**
-
-`ginseng_cap` · `m-sport_cap` · `peptein_cap` · `shark_cap`
-
-### `detect_bottle(label_bytes, cap_bytes | None)` — decision priority
-
-```
-Step 1  label image cannot be decoded          → REJECTED
-Step 2  label_model detects REJECT class       → REJECTED  (negative filter)
-Step 3  cap_model detects REJECT class         → REJECTED  (validator veto — dual-cam only)
-Step 4  label_model detects ACCEPT class       → PROCESSING  +  result 1/2/3
-Step 5  anything else                          → REJECTED
-```
-
-### Graceful degradation
-
-| Condition | `dual_cam` | Behaviour |
-|---|---|---|
-| Both images arrive within 1.5 s | `true` | Steps 2+3 both active |
-| Slave timeout / offline | `false` | Step 3 skipped — label model decides alone |
-| Cap image decode fails | `false` | Logged as warning, treated as single-cam |
-
-### Confidence threshold
-
-Default `0.5`. Set `AI_CONFIDENCE_THRESHOLD=0.6` in `.env` for a stricter demo.
-Applies to both accept (Step 4) and reject (Steps 2–3) paths.
-
----
-
-## 4. Cleanup Logic
-
-### `cap_storage_path` auto-deletion
-
-Every time `process_machine` writes a detection result back to Firestore, it
-includes `"last_capture.cap_storage_path": firestore.DELETE_FIELD` in the same
-update. The stale Slave path is gone before the Master reads the result.
-
-**Why this is safe:** The Cloud Function already replaces the entire `last_capture`
-map (not dot notation) on each new Master upload, which would clear the old
-`cap_storage_path` anyway. The `DELETE_FIELD` is a belt-and-suspenders guard for
-the race window between "CF writes new label path" and "Slave writes new cap path".
-
-### Double-processing prevention
-
-`_claim_if_ready` runs inside a **Firestore transaction**. It checks
-`status == "ready"` and immediately sets `status = "processing_ai"` atomically.
-Any concurrent or duplicate call finds a different status and exits immediately.
-No external locks, no session-ID matching required.
-
-### Stale machine watchdog
-
-`resetStaleSessions` (Cloud Function, runs every 5 min) resets any machine stuck
-in `READY / PROCESSING / REJECTED / COMPLETED / ready / processing_ai` for more
-than 10 minutes back to `IDLE`.
-
----
-
-## 5. Environment Variables (`ai_server/.env`)
-
-| Variable | Default | Description |
-|---|---|---|
-| `FIREBASE_SERVICE_ACCOUNT` | *(required)* | Path to service account JSON |
-| `FIREBASE_STORAGE_BUCKET` | `glooprvm.firebasestorage.app` | GCS bucket name |
-| `AI_CONFIDENCE_THRESHOLD` | `0.35` | Min YOLO confidence for accept/reject (lowered from 0.5 — C-Vitt detects at 0.26–0.40 with current camera quality) |
-| `CAP_WAIT_SECONDS` | `1.5` | Max seconds to wait for Slave image |
-
----
-
-## 5b. Firestore Security Rules — Key Notes
-
-The machine account email (`Tanavit.parn@gmail.com`) does **not** match the `isMachineClient()` pattern (`^machine-.*@.*$`). Slot events (`firestoreSlotEvent`) are therefore authorized via a separate rule that allows the **active session owner** to write `status`, `session_score`, `slotCounts`, `lastSlotEvent`, `updatedAt` — provided the result sets `status` back to `"READY"` and does not change `current_user` or `session_id`.
-
-If you create a dedicated machine account matching `^machine-.*@.*$` in the future, slot events will be covered by the existing `isMachineClient()` rule and this extra rule can be removed.
-
----
-
-## 6. Firmware & Feature Status
-
-All firmware and web features are complete and pushed to `main`.
-
-### Master ESP32 (`esp32/Master_ESP32/Master_ESP32.ino`)
-
-- [x] **Renamed upload field in `functions/index.js`.**
-  Cloud Function now sets `last_capture.label_storage_path` (was `storage_path`).
-  `listener.py` reads this field directly; legacy fallback to `storage_path` is
-  still in place for any existing single-cam data.
-
-- [x] **3-slot limit switch support.**
-  `SLOT_PIN_SMALL` (GPIO 14), `SLOT_PIN_MEDIUM` (GPIO 2), `SLOT_PIN_LARGE` (GPIO 3).
-  Each pin has its own ISR and loop handler. On trigger during `PROCESSING`:
-  - Calls `firestoreSlotEvent("SMALL"|"MEDIUM"|"LARGE")`
-  - Increments `slotCounts.<SIZE>` and `session_score` (by 1/2/3) atomically in Firestore
-  - Sets `status = "READY"` locally and in Firestore
-  Slot events are **ignored** when status is not `PROCESSING` (debounce safety).
-
-- [x] **Camera quality improvements.**
-  - `config.jpeg_quality = 5` (was 12) — highest quality, larger files, more YOLO detail
-  - Added sensor settings: `set_aec2(1)`, `set_ae_level(0)`, `set_gainceiling(GAINCEILING_2X)`, `set_lenc(1)`, `set_raw_gma(1)`
-  - Dummy frame warmup: 10 frames × 100ms (was 3 × 50ms) — allows AE/AWB to fully settle before real capture
-
-- [x] **No solenoid logic changes needed.**
-  The Master already polls for `status == "PROCESSING"` and calls `startSolenoid()`.
-
-### Slave ESP32 (`esp32/Slave_ESP32/Slave_ESP32.ino`)
-
-- [x] **Firmware created.** Minimal sketch that:
-  1. Connects to WiFi (same SSID as Master)
-  2. Signs in to Firebase Auth with `SLAVE_MACHINE_EMAIL` / `SLAVE_MACHINE_PASSWORD`
-  3. Polls Firestore every 500 ms for `status == "ready"` (edge-detect — triggers once per event)
-  4. On "ready" edge: captures JPEG from cap camera
-  5. Uploads to Firebase Storage REST API at:
-     `captures/{MACHINE_ID}/{sessionId}/{timestamp}_cap.jpg`
-  6. Writes `last_capture.cap_storage_path` via Firestore commit endpoint with
-     `updateMask.fieldPaths = ["last_capture.cap_storage_path"]` — other fields untouched
-  7. Does **nothing else** — no solenoid, no slot sensor, no score tracking
-
-- [x] **Slave trigger mechanism:** polls Firestore for `status == "ready"`.
-  The Slave sees the same Cloud Function write that listener.py watches.
-  Upload typically arrives within 0–1.5 s of the Master triggering — well within
-  the `CAP_WAIT_SECONDS` window.
-
-- [x] **Slave credentials:** uses the **same Firebase Auth account as the Master**.
-  No separate account needed. Credentials in `esp32/config_slave.h` (copy from `config_slave.example.h`).
-
-- [x] **Remote restart from admin web UI.**
-  Admin presses "Restart Slave" on `/admin` → `restartSlave()` sets `slave_restart: true` →
-  Slave reads flag on next 500 ms poll → clears it → `ESP.restart()`.
-
----
-
-## 7. File Map
+## 2. File Map
 
 ```
 glooprvm/
 ├── ai_server/
-│   ├── listener.py          ← Main AI service (Dual-cam, graceful degradation)
-│   ├── server.py            ← Alternative: local HTTP server via ngrok
+│   ├── listener.py          ← Main AI service (Firestore listener + YOLO inference)
+│   ├── api.py               ← NEW FastAPI wrapper: /health + /status endpoints
+│   ├── config_manager.py    ← NEW Dynamic config from Firestore system_configs
+│   ├── server.py            ← Legacy: local HTTP server via ngrok (not used in production)
 │   ├── models/
-│   │   ├── label_model.pt   ← Primary YOLO model (side camera)
-│   │   └── cap_model.pt     ← Validator YOLO model (top camera)
-│   ├── requirements.txt     ← Python dependencies
-│   └── .env.example         ← Environment variable template
+│   │   ├── label_model.pt   ← Primary YOLO model (side/label camera)
+│   │   └── cap_model.pt     ← Validator YOLO model (top/cap camera)
+│   ├── requirements.txt     ← Python deps (includes fastapi, uvicorn)
+│   └── .env.example         ← Env var template
 │
 ├── esp32/
 │   ├── Master_ESP32/
-│   │   └── Master_ESP32.ino ← Master ESP32-S3 firmware (label cam + solenoid + scoring)
+│   │   └── Master_ESP32.ino ← Master firmware (label cam + solenoid + scoring)
 │   ├── Slave_ESP32/
-│   │   └── Slave_ESP32.ino  ← Slave ESP32-S3 firmware (cap cam upload only)
-│   ├── config.h             ← Master live credentials (gitignored)
-│   │                           Key GPIO: SOLENOID=38, SENSOR=1, READY_BTN=47
-│   │                                     SLOT_SMALL=14, SLOT_MEDIUM=2, SLOT_LARGE=3
+│   │   └── Slave_ESP32.ino  ← Slave firmware (cap cam upload only)
+│   ├── config.h             ← Master credentials (gitignored)
+│   │     GPIO: SOLENOID=38, SLOT_SMALL=14, SLOT_MEDIUM=2, SLOT_LARGE=3
 │   ├── config.example.h     ← Master credential template (tracked)
-│   ├── config_slave.h       ← Slave live credentials (gitignored)
-│   ├── config_slave.example.h ← Slave credential template (tracked)
-│   └── firebase_cert.h      ← Google root CA cert (shared by both boards)
+│   ├── config_slave.h       ← Slave credentials (gitignored)
+│   ├── config_slave.example.h ← Slave template (tracked)
+│   └── firebase_cert.h      ← Google root CA cert
 │
 ├── functions/
-│   └── index.js             ← Cloud Functions: uploadBottleImage + resetStaleSessions
+│   └── index.js             ← uploadBottleImage + resetStaleSessions
 │
 ├── web/src/
 │   ├── app/dashboard/       ← Live machine status + sorting history
 │   ├── app/summary/         ← Session end + score save
-│   ├── app/admin/           ← Admin panel: Reset Machine + Restart Slave buttons
-│   ├── lib/machine.ts       ← Firestore reads/writes (assignMachine, resetMachine, restartSlave)
-│   └── types/machine.ts     ← MachineStatus type: IDLE|READY|PROCESSING|REJECTED|COMPLETED
+│   ├── app/admin/           ← Reset machine + slot counts + restart slave
+│   ├── lib/machine.ts       ← Firestore helpers
+│   └── types/machine.ts     ← MachineStatus type
 │
+├── firestore.rules          ← Security rules (admin can write machines)
 ├── SYSTEM_SYNC_LOG.md       ← Full field reference + state machine + setup guide
-└── TECHNICAL_HANDOVER.md    ← This file
+└── TECHNICAL_HANDOVER.md   ← This file
 ```
 
-> **Note:** `ai_server/` is gitignored at the root level to protect the service
-> account JSON and `.pt` model files. To track `listener.py` and `requirements.txt`
-> without exposing secrets, add an `ai_server/.gitignore`:
-> ```
-> # keep secrets and models out
-> *.json
-> *.pt
-> .env
-> __pycache__/
-> .venv/
-> training_results/
-> ```
-> Then remove the `ai_server/` line from the root `.gitignore` and re-add the
-> directory to git tracking.
+---
+
+## 3. Firestore Schema
+
+### `machines/{machineId}` — key fields
+
+| Field | Set by | Notes |
+|---|---|---|
+| `status` | All layers | See state machine in SYSTEM_SYNC_LOG |
+| `current_user` | Web | Firebase Auth UID |
+| `session_score` | Master ESP32 | +1/+2/+3 per slot event |
+| `slotCounts.SMALL/MEDIUM/LARGE` | Master ESP32 | Cumulative bottle counts per slot |
+| `result` | listener.py | 1=lipo / 2=cvitt / 3=m150 |
+| `last_capture.inference_ms` | listener.py | YOLO latency (NEW) |
+| `last_capture.dual_cam` | listener.py | `true` when Slave online |
+
+### `logs/{logId}` — inference log (written for every bottle since Pass 4)
+
+Key new fields: `inference_ms`, `label_all_scores`, `cap_all_scores`, `rescued_by_slave`, `conf_threshold`
+
+### `system_configs/global` — live config (NEW)
+
+| Field | Current Value | Description |
+|---|---|---|
+| `AI_CONFIDENCE_THRESHOLD` | 0.5 | Minimum YOLO confidence |
+| `AI_SAFETY_LOCK_THRESHOLD` | 0.35 | Hard floor below which always reject |
+| `CAP_WAIT_SECONDS` | **0** | Slave wait time (0 = Slave disabled) |
+
+Changes here take effect within 60 seconds — no code deploy needed.
+
+### `admins/{uid}` — admin access control
+
+| UID | Email |
+|---|---|
+| `j9whcXFUD2MYbSn7CjEaqucqFa13` | `tanavit.parn@gmail.com` |
+
+---
+
+## 4. AI Decision Logic
+
+### Decision priority (`detect_bottle`)
+
+```
+Step 1  Label image decode fails              → REJECTED
+Step 2  ai_conf < safety_lock_threshold       → REJECTED  (hard floor)
+Step 3  label_model detects REJECT class      → REJECTED  (negative filter)
+Step 4  cap_model detects REJECT class        → REJECTED  (dual-cam veto, if Slave online)
+Step 5  ai_conf >= conf_threshold             → PROCESSING (master confident)
+Step 6  ai_conf < conf_threshold              → PROCESSING (slave rescue — Slave agrees)
+        AND Slave online AND cap same class
+        AND cap_conf >= conf_threshold
+Step 7  Anything else                         → REJECTED
+```
+
+### Accepted classes
+
+| Class | Alias | Result | Slot |
+|---|---|---|---|
+| `lipo_cap` | `lipo` | 1 | Small |
+| `cvitt_cap` | `cvitt` | 2 | Medium |
+| `m150_cap` | `m150` | 3 | Large |
+
+### Reject classes (negative filter)
+
+`ginseng_cap` · `m-sport_cap` · `peptein_cap` · `shark_cap`
+
+---
+
+## 5. Hardware — Master ESP32-S3
+
+### GPIO assignments
+
+| GPIO | Function | Wiring |
+|---|---|---|
+| 38 | Solenoid relay IN | Active-low: LOW=open, HIGH=closed |
+| 14 | Limit switch SMALL | Switch → GND. `INPUT_PULLUP`, `FALLING` interrupt |
+| 2 | Limit switch MEDIUM | Switch → GND. `INPUT_PULLUP`, `FALLING` interrupt |
+| 3 | Limit switch LARGE | Switch → GND. `INPUT_PULLUP`, `FALLING` interrupt |
+| 4–18 | OV5640 camera | Do not use for GPIO |
+
+### Arduino IDE settings
+
+```
+Board:  ESP32S3 Dev Module
+PSRAM:  OPI PSRAM   ← REQUIRED (camera DMA malloc fails without this)
+Flash:  16MB
+```
+
+### Critical wiring notes
+
+- Limit switches must be physically connected before power-on. Floating `INPUT_PULLUP`
+  pins are antenna for EMI — relay switching causes spurious `FALLING` interrupts that
+  prematurely set PROCESSING → READY without a bottle dropping.
+- `SLOT_GUARD_MS = 1000` ms: slot interrupts are silently ignored for 1 second after
+  solenoid fires as a secondary EMI suppression guard.
+- GPIO 47 (`READY_BUTTON_PIN`) has been **removed from firmware** — do not connect
+  anything to GPIO 47.
+
+---
+
+## 6. Known Constraints & Next Steps
+
+| Item | Status | Notes |
+|---|---|---|
+| Slave ESP32 (cap camera) | Offline | `CAP_WAIT_SECONDS=0` in Firestore; dual_cam always false until reconnected |
+| Limit switches | Not yet connected | Must connect GPIO 14/2/3 before testing slot scoring |
+| `api.py` FastAPI service | Created, not yet running in production | Run `python api.py` alongside `listener.py` for `/health` endpoint |
+| Admin UID mismatch | Fixed | `tanavit.parn@gmail.com` in admins collection; Firestore rules updated |
+| Machine account email | Does not match `^machine-.*` pattern | Current workaround: slot-event rule grants active session owner write rights |
+
+---
+
+## 7. Quick Start (New Assistant)
+
+```bash
+# 1. Start AI service
+cd ai_server
+.venv\Scripts\activate
+python api.py              # starts Firestore listener + FastAPI on :8000
+
+# 2. Verify health
+curl http://localhost:8000/health
+# → {"ok": true, "listener_alive": true, "uptime_s": ...}
+
+# 3. Check active config
+curl http://localhost:8000/status
+# → shows current conf_threshold, CAP_WAIT_SECONDS, last detection
+
+# 4. Deploy Firestore rules after any rules change
+firebase deploy --only firestore:rules
+
+# 5. Deploy web after any web change
+firebase deploy --only hosting
+
+# 6. Tune thresholds (no restart needed)
+# Go to Firebase Console → Firestore → system_configs/global
+# Edit AI_CONFIDENCE_THRESHOLD / CAP_WAIT_SECONDS
+# Takes effect within 60 seconds
+```
+
+---
+
+## 8. Firestore Security Rules — Key Notes
+
+`isAdmin()` checks `admins/{uid}` exists. Admin accounts are created manually
+in Firebase Console — they cannot be written from client code.
+
+Since Pass 4, admins can update any machine document unconditionally (first condition
+in the machines `allow update` rule). This allows the admin panel to reset stuck
+machines regardless of who owns the current session.
+
+The machine account email (`Tanavit.parn@gmail.com`) does NOT match the
+`isMachineClient()` pattern (`^machine-.*@.*$`). Slot events are authorized via a
+separate rule allowing the active session owner to write
+`status / session_score / slotCounts / lastSlotEvent / updatedAt`.
