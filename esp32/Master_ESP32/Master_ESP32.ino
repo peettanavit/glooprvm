@@ -30,6 +30,9 @@ const unsigned long WIFI_RETRY_MS = 4000;
 const unsigned long REJECT_HOLD_MS = 1200;
 const unsigned long TOKEN_REFRESH_MARGIN_MS = 60000;
 const unsigned long SOLENOID_PULSE_MS = 600;
+// Ignore slot interrupts for this many ms after solenoid fires.
+// Relay switching causes EMI that can spuriously trigger limit switch GPIOs.
+const unsigned long SLOT_GUARD_MS = 1000;
 
 const int SCORE_SMALL = 1;
 const int SCORE_MEDIUM = 2;
@@ -804,7 +807,9 @@ void loop() {
     slotSmallInterrupt = false;
     Serial.printf("[Slot] SMALL triggered (status=%s)\n", machineState.status.c_str());
     if (machineState.status == "PROCESSING") {
-      if (firestoreSlotEvent("SMALL")) {
+      if (millis() - solenoidOnAt < SLOT_GUARD_MS) {
+        Serial.println("[Slot] SMALL ignored: solenoid guard active (EMI suppression)");
+      } else if (firestoreSlotEvent("SMALL")) {
         machineState.status = "READY";
         machineState.sessionScore += SCORE_SMALL;
       }
@@ -817,7 +822,9 @@ void loop() {
     slotMediumInterrupt = false;
     Serial.printf("[Slot] MEDIUM triggered (status=%s)\n", machineState.status.c_str());
     if (machineState.status == "PROCESSING") {
-      if (firestoreSlotEvent("MEDIUM")) {
+      if (millis() - solenoidOnAt < SLOT_GUARD_MS) {
+        Serial.println("[Slot] MEDIUM ignored: solenoid guard active (EMI suppression)");
+      } else if (firestoreSlotEvent("MEDIUM")) {
         machineState.status = "READY";
         machineState.sessionScore += SCORE_MEDIUM;
       }
@@ -830,7 +837,9 @@ void loop() {
     slotLargeInterrupt = false;
     Serial.printf("[Slot] LARGE triggered (status=%s)\n", machineState.status.c_str());
     if (machineState.status == "PROCESSING") {
-      if (firestoreSlotEvent("LARGE")) {
+      if (millis() - solenoidOnAt < SLOT_GUARD_MS) {
+        Serial.println("[Slot] LARGE ignored: solenoid guard active (EMI suppression)");
+      } else if (firestoreSlotEvent("LARGE")) {
         machineState.status = "READY";
         machineState.sessionScore += SCORE_LARGE;
       }
