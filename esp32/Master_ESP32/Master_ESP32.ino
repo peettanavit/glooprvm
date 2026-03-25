@@ -658,7 +658,7 @@ void handleBottleInsert() {
       String aiStatus = "";
       int pollCount = 0;
       while (millis() - aiWaitStart < 10000UL) {
-        delay(400);
+        delay(200);
         pollCount++;
         MachineState latest;
         if (firestoreGet(latest)) {
