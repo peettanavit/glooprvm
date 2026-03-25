@@ -94,8 +94,11 @@ _CAP_WAIT_S = float(os.environ.get("CAP_WAIT_SECONDS", "1.5"))
 # Only these three classes trigger status: "PROCESSING" and open the solenoid.
 _LABEL_TO_RESULT: dict[str, int] = {
     "lipo_cap":  1,   # smallest bottle — sorts first
+    "lipo":      1,   # alias: label_model may return without _cap suffix
     "cvitt_cap": 2,   # medium bottle   — sorts second
+    "cvitt":     2,   # alias: label_model may return without _cap suffix
     "m150_cap":  3,   # largest bottle  — sorts last
+    "m150":      3,   # alias: label_model may return without _cap suffix
 }
 
 # ── Negative-filter classes — explicitly rejected ─────────────────────────────
@@ -130,11 +133,14 @@ def detect_bottle(label_bytes: bytes, cap_bytes: bytes | None) -> dict:
                Skipped entirely when cap_bytes is None (graceful degradation).
 
     Decision priority (checked in order):
-      1. Label image decode failure              → REJECTED
-      2. label_model detects a REJECT class      → REJECTED  (negative filter)
-      3. cap_model detects a REJECT class        → REJECTED  (validator veto, dual-cam only)
-      4. label_model detects an ACCEPT class     → PROCESSING  (result 1 / 2 / 3)
-      5. Anything else                           → REJECTED
+      1. Label image decode failure                          → REJECTED
+      2. Safety lock: label_model conf < floor               → REJECTED
+      3. label_model detects a REJECT class                  → REJECTED  (negative filter)
+      4. cap_model detects a REJECT class                    → REJECTED  (validator veto, dual-cam only)
+      5. label_model conf >= threshold                       → PROCESSING  (master accepts directly)
+      6. label_model conf < threshold + slave agrees on same
+         class with conf >= threshold                        → PROCESSING  (slave rescue)
+      7. Anything else                                       → REJECTED
 
     Returns a dict with:
         valid       (bool)        — True → "PROCESSING", False → "REJECTED"
@@ -232,30 +238,61 @@ def detect_bottle(label_bytes: bytes, cap_bytes: bytes | None) -> dict:
             ),
         }
 
-    if ai_conf < _CONFIDENCE_THRESHOLD:
+    # ── Step 5: Master confident enough → accept directly ─────────────────────
+    # Slave already had its veto chance in Step 4; no further slave check needed.
+    if ai_conf >= _CONFIDENCE_THRESHOLD:
+        mode = (
+            f"dual-cam validator='{cap_name}'({cap_conf:.2f})"
+            if dual_cam else
+            "single-cam (Slave offline or timed out)"
+        )
         return {
-            "valid": False, "result": None,
-            "ai_label": ai_label, "ai_conf": ai_conf,
-            "cap_name": cap_name, "cap_conf": cap_conf,
+            "valid":    True,
+            "result":   result_code,
+            "ai_label": ai_label,
+            "ai_conf":  ai_conf,
+            "cap_name": cap_name,
+            "cap_conf": cap_conf,
             "dual_cam": dual_cam,
-            "reason": f"'{ai_label}' confidence {ai_conf:.2f} below threshold {_CONFIDENCE_THRESHOLD}",
+            "reason":   f"accepted '{ai_label}' conf={ai_conf:.2f} [{mode}]",
         }
 
-    # ── Accepted ──────────────────────────────────────────────────────────────
-    mode = (
-        f"dual-cam validator='{cap_name}'({cap_conf:.2f})"
-        if dual_cam else
-        "single-cam (Slave offline or timed out)"
+    # ── Step 6: Slave rescue — master below threshold, slave can compensate ───
+    # Slave must agree on the same bottle type AND be confident enough.
+    # (cap_name is guaranteed not a reject class — Step 4 would have returned.)
+    if dual_cam:
+        slave_result = _LABEL_TO_RESULT.get(cap_name)
+        if slave_result == result_code and cap_conf >= _CONFIDENCE_THRESHOLD:
+            log.info("[YOLO] slave rescue: master '%s'(%.2f) < %.2f, slave '%s'(%.2f) agrees",
+                     ai_label, ai_conf, _CONFIDENCE_THRESHOLD, cap_name, cap_conf)
+            return {
+                "valid":    True,
+                "result":   result_code,
+                "ai_label": ai_label,
+                "ai_conf":  ai_conf,
+                "cap_name": cap_name,
+                "cap_conf": cap_conf,
+                "dual_cam": dual_cam,
+                "reason":   (
+                    f"accepted '{ai_label}' via slave rescue: "
+                    f"master={ai_conf:.2f} slave='{cap_name}'({cap_conf:.2f})"
+                ),
+            }
+
+    # ── Rejected — master insufficient, slave could not rescue ────────────────
+    slave_note = (
+        f"; slave '{cap_name}'({cap_conf:.2f}) did not rescue"
+        if dual_cam else ""
     )
     return {
-        "valid":    True,
-        "result":   result_code,
-        "ai_label": ai_label,
-        "ai_conf":  ai_conf,
-        "cap_name": cap_name,
-        "cap_conf": cap_conf,
+        "valid": False, "result": None,
+        "ai_label": ai_label, "ai_conf": ai_conf,
+        "cap_name": cap_name, "cap_conf": cap_conf,
         "dual_cam": dual_cam,
-        "reason":   f"accepted '{ai_label}' conf={ai_conf:.2f} [{mode}]",
+        "reason": (
+            f"'{ai_label}' master conf {ai_conf:.2f} below threshold "
+            f"{_CONFIDENCE_THRESHOLD}{slave_note}"
+        ),
     }
 
 
