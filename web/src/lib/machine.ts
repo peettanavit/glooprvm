@@ -103,17 +103,6 @@ export async function forceSetStatus(status: MachineStatus): Promise<void> {
   await updateDoc(machineRef, { status, updatedAt: serverTimestamp() });
 }
 
-export async function triggerSlotEvent(size: "SMALL" | "MEDIUM" | "LARGE"): Promise<void> {
-  await updateDoc(machineRef, {
-    [`slotCounts.${size}`]: increment(1),
-    "lastSlotEvent.size": size,
-    "lastSlotEvent.machineId": MACHINE_ID,
-    "lastSlotEvent.timestamp": serverTimestamp(),
-    status: "READY" as MachineStatus,
-    updatedAt: serverTimestamp(),
-  });
-}
-
 export async function updateBinFull(binFull: BinFull): Promise<void> {
   await updateDoc(machineRef, {
     "bin_full.SMALL":  binFull.SMALL,
