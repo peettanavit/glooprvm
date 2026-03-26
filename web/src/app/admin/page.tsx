@@ -15,6 +15,7 @@ import { onAuthStateChanged } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import {
+  forceSetStatus,
   resetMachine,
   restartSlave,
   subscribeToMachine,
@@ -60,6 +61,8 @@ export default function AdminPage() {
   const [restartSlaveError, setRestartSlaveError] = useState<string | null>(null);
   const [slotLoading, setSlotLoading] = useState<"SMALL" | "MEDIUM" | "LARGE" | null>(null);
   const [slotError, setSlotError] = useState<string | null>(null);
+  const [forceReleasing, setForceReleasing] = useState(false);
+  const [forceReleaseError, setForceReleaseError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -137,6 +140,18 @@ export default function AdminPage() {
       updateBinFull(next).catch((err) => console.error("updateBinFull failed:", err));
     }
   }, [machine.slotCounts, machine.bin_full]);
+
+  const handleForceRelease = async () => {
+    setForceReleasing(true);
+    setForceReleaseError(null);
+    try {
+      await forceSetStatus("PROCESSING");
+    } catch (err) {
+      setForceReleaseError(err instanceof Error ? err.message : "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง");
+    } finally {
+      setForceReleasing(false);
+    }
+  };
 
   const handleSlotEvent = async (size: "SMALL" | "MEDIUM" | "LARGE") => {
     setSlotLoading(size);
@@ -216,7 +231,23 @@ export default function AdminPage() {
               </div>
             )}
 
+            {forceReleaseError && (
+              <div className="mt-3 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
+                <p className="text-red-600 text-sm">{forceReleaseError}</p>
+              </div>
+            )}
+
             <div className="mt-4 flex gap-2">
+              <Button
+                color="success"
+                variant="flat"
+                className="flex-1 font-medium"
+                isDisabled={machine.status !== "READY" || !machine.current_user}
+                isLoading={forceReleasing}
+                onPress={handleForceRelease}
+              >
+                เปิด Solenoid
+              </Button>
               <Button
                 color="danger"
                 variant="flat"
@@ -224,7 +255,7 @@ export default function AdminPage() {
                 isLoading={resetting}
                 onPress={handleResetMachine}
               >
-                Reset Machine
+                Reset
               </Button>
               <Button
                 color="warning"

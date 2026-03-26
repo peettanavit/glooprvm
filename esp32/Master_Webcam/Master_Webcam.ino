@@ -490,10 +490,16 @@ void loop() {
     lastFirestorePollAt = now;
     MachineState latest;
     if (firestoreGet(latest)) {
+      const bool wasProcessing = machineState.status == "PROCESSING";
       if (latest.status != machineState.status) {
         Serial.printf("[State] %s -> %s\n", machineState.status.c_str(), latest.status.c_str());
       }
       machineState = latest;
+      // Force-release: admin set status=PROCESSING directly (bypassing AI).
+      if (!wasProcessing && machineState.status == "PROCESSING" && !solenoidActive) {
+        Serial.println("[RVM] force-release detected — opening solenoid");
+        startSolenoid();
+      }
     }
   }
 
