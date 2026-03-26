@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { Button, Card, CardBody, Input } from "@heroui/react";
 import {
   createUserWithEmailAndPassword,
+  sendPasswordResetEmail,
   signInWithEmailAndPassword,
 } from "firebase/auth";
 import { auth } from "@/lib/firebase";
@@ -18,8 +19,35 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [emailTouched, setEmailTouched] = useState(false);
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
+  const [resetSent, setResetSent] = useState(false);
+  const [resetLoading, setResetLoading] = useState(false);
 
   const isEmailValid = (val: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val);
+
+  const handleForgotPassword = async () => {
+    if (!isEmailValid(email)) {
+      setEmailTouched(true);
+      setError("กรุณากรอกอีเมลให้ถูกต้องก่อนรีเซ็ตรหัสผ่าน");
+      return;
+    }
+    setResetLoading(true);
+    try {
+      await sendPasswordResetEmail(auth, email);
+      setResetSent(true);
+      setError(null);
+      setShowForgotPassword(false);
+    } catch (err) {
+      const code = (err as { code?: string }).code ?? "";
+      if (code === "auth/user-not-found") {
+        setError("ไม่พบบัญชีที่ใช้อีเมลนี้");
+      } else {
+        setError("ส่งอีเมลไม่สำเร็จ กรุณาลองใหม่อีกครั้ง");
+      }
+    } finally {
+      setResetLoading(false);
+    }
+  };
   const isEmailInvalid = emailTouched && !isEmailValid(email);
 
   const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -48,6 +76,7 @@ export default function LoginPage() {
       let message: string;
       if (code === "auth/invalid-credential" || code === "auth/user-not-found" || code === "auth/wrong-password") {
         message = "อีเมลหรือรหัสผ่านไม่ถูกต้อง";
+        setShowForgotPassword(true);
       } else if (code === "auth/email-already-in-use") {
         message = "อีเมลนี้ถูกใช้งานแล้ว";
       } else if (code === "auth/weak-password") {
@@ -85,7 +114,7 @@ export default function LoginPage() {
             <div className="flex gap-2 mb-6 p-1 bg-green-50 rounded-xl border border-green-100">
               <button
                 type="button"
-                onClick={() => { setMode("login"); setError(null); }}
+                onClick={() => { setMode("login"); setError(null); setShowForgotPassword(false); setResetSent(false); }}
                 className={`flex-1 py-2.5 rounded-lg text-sm font-semibold transition-all duration-200 ${
                   mode === "login"
                     ? "bg-green-600 text-white shadow-sm"
@@ -96,7 +125,7 @@ export default function LoginPage() {
               </button>
               <button
                 type="button"
-                onClick={() => { setMode("register"); setError(null); }}
+                onClick={() => { setMode("register"); setError(null); setShowForgotPassword(false); setResetSent(false); }}
                 className={`flex-1 py-2.5 rounded-lg text-sm font-semibold transition-all duration-200 ${
                   mode === "register"
                     ? "bg-green-600 text-white shadow-sm"
@@ -133,8 +162,24 @@ export default function LoginPage() {
               />
 
               {error && (
-                <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3">
+                <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 flex flex-col gap-2">
                   <p className="text-red-600 text-sm">{error}</p>
+                  {showForgotPassword && mode === "login" && (
+                    <button
+                      type="button"
+                      onClick={handleForgotPassword}
+                      disabled={resetLoading}
+                      className="text-green-700 text-sm font-semibold underline text-left disabled:opacity-50"
+                    >
+                      {resetLoading ? "กำลังส่ง..." : "ลืมรหัสผ่าน? ส่งลิงก์รีเซ็ตไปที่อีเมล"}
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {resetSent && (
+                <div className="bg-green-50 border border-green-200 rounded-lg px-4 py-3">
+                  <p className="text-green-700 text-sm">ส่งลิงก์รีเซ็ตรหัสผ่านไปที่ <strong>{email}</strong> แล้ว กรุณาตรวจสอบอีเมลของคุณ</p>
                 </div>
               )}
 
