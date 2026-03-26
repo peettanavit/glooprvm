@@ -297,17 +297,13 @@ export default function DashboardPage() {
           <div className="flex flex-col gap-3">
             {/* Instruction card — hide once trigger is pending (capture in progress) */}
             {!machine.trigger_source && !triggering && (
-              <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 flex gap-3 items-start">
-                <span className="text-2xl leading-none mt-0.5">📋</span>
-                <div className="flex flex-col gap-1">
-                  <p className="text-sm font-semibold text-amber-800">
-                    ก่อนกดถ่ายรูป
-                  </p>
-                  <p className="text-sm text-amber-700 leading-relaxed">
-                    กรุณาวางขวดให้ฉลากข้างขวดเห็นชัดๆ หันขึ้น
-                    และวางขวดให้ตรงช่องใส่ขวด
-                  </p>
-                </div>
+              <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4">
+                <p className="text-xs font-semibold text-amber-600 uppercase tracking-wide mb-1">
+                  คำแนะนำก่อนถ่ายภาพ
+                </p>
+                <p className="text-sm text-amber-800 leading-relaxed">
+                  วางขวดให้ฉลากหันออกด้านข้างและมองเห็นชัดเจน จากนั้นวางให้ตรงช่องรับขวด
+                </p>
               </div>
             )}
 
