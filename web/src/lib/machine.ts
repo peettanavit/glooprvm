@@ -14,7 +14,7 @@ import {
   type Unsubscribe,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { MACHINE_ID, type MachineState, type MachineStatus, type SlotCounts } from "@/types/machine";
+import { MACHINE_ID, type BinFull, type MachineState, type MachineStatus, type SlotCounts } from "@/types/machine";
 
 export interface SortingLog {
   id: string;
@@ -103,6 +103,15 @@ export async function forceSetStatus(status: MachineStatus): Promise<void> {
   await updateDoc(machineRef, { status, updatedAt: serverTimestamp() });
 }
 
+export async function updateBinFull(binFull: BinFull): Promise<void> {
+  await updateDoc(machineRef, {
+    "bin_full.SMALL":  binFull.SMALL,
+    "bin_full.MEDIUM": binFull.MEDIUM,
+    "bin_full.LARGE":  binFull.LARGE,
+    updatedAt: serverTimestamp(),
+  });
+}
+
 export async function persistUserSessionScore(
   uid: string,
   state: MachineState,
@@ -188,6 +197,7 @@ export function subscribeToMachine(
       }
 
       const sc = data.slotCounts as Partial<SlotCounts> | undefined;
+      const bf = data.bin_full as Partial<BinFull> | undefined;
       callback({
         status: data.status,
         current_user: data.current_user ?? "",
@@ -198,6 +208,11 @@ export function subscribeToMachine(
           SMALL:  sc?.SMALL  ?? 0,
           MEDIUM: sc?.MEDIUM ?? 0,
           LARGE:  sc?.LARGE  ?? 0,
+        },
+        bin_full: {
+          SMALL:  bf?.SMALL  ?? false,
+          MEDIUM: bf?.MEDIUM ?? false,
+          LARGE:  bf?.LARGE  ?? false,
         },
       });
     },

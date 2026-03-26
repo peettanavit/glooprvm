@@ -19,10 +19,11 @@ import {
   restartSlave,
   subscribeToMachine,
   subscribeToSortingLogs,
+  updateBinFull,
   type SortingLog,
 } from "@/lib/machine";
 import { LiveSortingStatus } from "@/components/live-sorting-status";
-import { type MachineState, type MachineStatus } from "@/types/machine";
+import { BIN_CAPACITY, BIN_WARN_THRESHOLD, type MachineState, type MachineStatus } from "@/types/machine";
 
 const initialMachine: MachineState = {
   status: "IDLE",
@@ -114,6 +115,25 @@ export default function AdminPage() {
       setResetting(false);
     }
   };
+
+  // Auto-write bin_full to Firestore whenever slotCounts change
+  useEffect(() => {
+    if (!machine.slotCounts) return;
+    const { SMALL, MEDIUM, LARGE } = machine.slotCounts;
+    const next = {
+      SMALL:  SMALL  >= BIN_CAPACITY.SMALL,
+      MEDIUM: MEDIUM >= BIN_CAPACITY.MEDIUM,
+      LARGE:  LARGE  >= BIN_CAPACITY.LARGE,
+    };
+    const prev = machine.bin_full;
+    if (
+      prev?.SMALL  !== next.SMALL ||
+      prev?.MEDIUM !== next.MEDIUM ||
+      prev?.LARGE  !== next.LARGE
+    ) {
+      updateBinFull(next).catch((err) => console.error("updateBinFull failed:", err));
+    }
+  }, [machine.slotCounts, machine.bin_full]);
 
   const handleRestartSlave = async () => {
     setRestartingSlave(true);
@@ -207,22 +227,46 @@ export default function AdminPage() {
         {/* Slot Counts */}
         <Card className="shadow-sm border border-green-100">
           <CardHeader className="pb-2 px-5 pt-4">
-            <h2 className="text-base font-semibold text-gray-700">จำนวนขวดในแต่ละช่อง</h2>
+            <h2 className="text-base font-semibold text-gray-700">ความจุถังรองรับ</h2>
           </CardHeader>
           <CardBody className="pt-0 px-5 pb-4">
-            <div className="flex flex-col gap-0 text-sm">
-              <div className="flex justify-between items-center py-3 border-b border-gray-100">
-                <span className="text-gray-500">Small (Lipoviton)</span>
-                <span className="text-green-700 font-bold text-lg">{machine.slotCounts?.SMALL ?? 0}</span>
-              </div>
-              <div className="flex justify-between items-center py-3 border-b border-gray-100">
-                <span className="text-gray-500">Medium (C-Vitt)</span>
-                <span className="text-green-700 font-bold text-lg">{machine.slotCounts?.MEDIUM ?? 0}</span>
-              </div>
-              <div className="flex justify-between items-center py-3">
-                <span className="text-gray-500">Large (M-150)</span>
-                <span className="text-green-700 font-bold text-lg">{machine.slotCounts?.LARGE ?? 0}</span>
-              </div>
+            <div className="flex flex-col gap-3 text-sm">
+              {(
+                [
+                  { key: "SMALL",  label: "Small (Lipoviton)", count: machine.slotCounts?.SMALL  ?? 0, cap: BIN_CAPACITY.SMALL },
+                  { key: "MEDIUM", label: "Medium (C-Vitt)",   count: machine.slotCounts?.MEDIUM ?? 0, cap: BIN_CAPACITY.MEDIUM },
+                  { key: "LARGE",  label: "Large (M-150)",     count: machine.slotCounts?.LARGE  ?? 0, cap: BIN_CAPACITY.LARGE },
+                ] as const
+              ).map(({ key, label, count, cap }) => {
+                const pct = Math.min(count / cap, 1);
+                const isFull = pct >= 1;
+                const isWarn = !isFull && pct >= BIN_WARN_THRESHOLD;
+                const barColor = isFull ? "bg-red-500" : isWarn ? "bg-yellow-400" : "bg-green-500";
+                return (
+                  <div key={key} className="flex flex-col gap-1">
+                    <div className="flex justify-between items-center">
+                      <span className="text-gray-500">{label}</span>
+                      <div className="flex items-center gap-2">
+                        <span className={`font-bold text-base ${isFull ? "text-red-600" : isWarn ? "text-yellow-600" : "text-green-700"}`}>
+                          {count}/{cap}
+                        </span>
+                        {isFull && (
+                          <Chip color="danger" variant="flat" size="sm">เต็ม</Chip>
+                        )}
+                        {isWarn && (
+                          <Chip color="warning" variant="flat" size="sm">ใกล้เต็ม</Chip>
+                        )}
+                      </div>
+                    </div>
+                    <div className="w-full bg-gray-100 rounded-full h-2">
+                      <div
+                        className={`h-2 rounded-full transition-all ${barColor}`}
+                        style={{ width: `${pct * 100}%` }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </CardBody>
         </Card>

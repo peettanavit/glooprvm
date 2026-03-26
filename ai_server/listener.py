@@ -390,6 +390,18 @@ def process_machine(machine_id: str, data: dict):
         log.info(f"[{machine_id}] detection ({inference_ms} ms): {detection}")
 
         is_valid   = detection["valid"]
+
+        # 3b. Bin-full check — override accept if the target slot is full.
+        #     result 1=SMALL, 2=MEDIUM, 3=LARGE; bin_full written by Web Admin.
+        if is_valid and detection.get("result") is not None:
+            _RESULT_TO_SLOT = {1: "SMALL", 2: "MEDIUM", 3: "LARGE"}
+            slot = _RESULT_TO_SLOT.get(detection["result"])
+            bin_full = (data.get("bin_full") or {})
+            if slot and bin_full.get(slot):
+                log.warning("[%s] bin %s is full — overriding to REJECTED", machine_id, slot)
+                is_valid = False
+                detection = {**detection, "valid": False, "reason": f"bin_{slot.lower()}_full"}
+
         new_status = "PROCESSING" if is_valid else "REJECTED"
 
         # 4. Write result back — dot notation preserves other last_capture fields.
