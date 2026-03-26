@@ -19,6 +19,7 @@ import {
   restartSlave,
   subscribeToMachine,
   subscribeToSortingLogs,
+  triggerSlotEvent,
   updateBinFull,
   type SortingLog,
 } from "@/lib/machine";
@@ -57,6 +58,8 @@ export default function AdminPage() {
   const [resetError, setResetError] = useState<string | null>(null);
   const [restartingslave, setRestartingSlave] = useState(false);
   const [restartSlaveError, setRestartSlaveError] = useState<string | null>(null);
+  const [slotLoading, setSlotLoading] = useState<"SMALL" | "MEDIUM" | "LARGE" | null>(null);
+  const [slotError, setSlotError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -134,6 +137,18 @@ export default function AdminPage() {
       updateBinFull(next).catch((err) => console.error("updateBinFull failed:", err));
     }
   }, [machine.slotCounts, machine.bin_full]);
+
+  const handleSlotEvent = async (size: "SMALL" | "MEDIUM" | "LARGE") => {
+    setSlotLoading(size);
+    setSlotError(null);
+    try {
+      await triggerSlotEvent(size);
+    } catch (err) {
+      setSlotError(err instanceof Error ? err.message : "เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง");
+    } finally {
+      setSlotLoading(null);
+    }
+  };
 
   const handleRestartSlave = async () => {
     setRestartingSlave(true);
@@ -221,6 +236,52 @@ export default function AdminPage() {
                 Restart Slave
               </Button>
             </div>
+          </CardBody>
+        </Card>
+
+        {/* Simulate Slot Event */}
+        <Card className="shadow-sm border border-blue-100">
+          <CardHeader className="pb-2 px-5 pt-4 flex justify-between items-center">
+            <div>
+              <h2 className="text-base font-semibold text-gray-700">จำลอง Limit Switch</h2>
+              <p className="text-xs text-gray-400 mt-0.5">ใช้ได้เฉพาะเมื่อ status = PROCESSING</p>
+            </div>
+            <Chip
+              color={machine.status === "PROCESSING" ? "primary" : "default"}
+              variant="flat"
+              size="sm"
+            >
+              {machine.status === "PROCESSING" ? "พร้อมใช้" : "ไม่พร้อม"}
+            </Chip>
+          </CardHeader>
+          <CardBody className="pt-0 px-5 pb-4">
+            <div className="flex gap-2">
+              {(
+                [
+                  { size: "SMALL",  label: "Small",  sub: "Lipoviton (+1)", color: "success" },
+                  { size: "MEDIUM", label: "Medium", sub: "C-Vitt (+2)",    color: "primary" },
+                  { size: "LARGE",  label: "Large",  sub: "M-150 (+3)",     color: "secondary" },
+                ] as const
+              ).map(({ size, label, sub, color }) => (
+                <Button
+                  key={size}
+                  color={color}
+                  variant="flat"
+                  className="flex-1 flex-col h-auto py-3 font-medium"
+                  isDisabled={machine.status !== "PROCESSING"}
+                  isLoading={slotLoading === size}
+                  onPress={() => handleSlotEvent(size)}
+                >
+                  <span className="text-sm">{label}</span>
+                  <span className="text-xs opacity-70">{sub}</span>
+                </Button>
+              ))}
+            </div>
+            {slotError && (
+              <div className="mt-3 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
+                <p className="text-red-600 text-sm">{slotError}</p>
+              </div>
+            )}
           </CardBody>
         </Card>
 

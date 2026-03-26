@@ -424,6 +424,7 @@ def process_machine(machine_id: str, data: dict):
         }
         if is_valid:
             update_payload["result"] = detection["result"]
+            update_payload["session_score"] = firestore.Increment(detection["result"])
 
         machine_ref.update(update_payload)
 
