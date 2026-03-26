@@ -28,7 +28,7 @@ log = logging.getLogger(__name__)
 _DEFAULTS: dict = {
     "AI_CONFIDENCE_THRESHOLD":  0.5,
     "AI_SAFETY_LOCK_THRESHOLD": 0.35,
-    "CAP_WAIT_SECONDS":         1.5,
+    "CAP_WAIT_SECONDS":         2.0,
 }
 
 

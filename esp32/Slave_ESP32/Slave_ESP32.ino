@@ -31,7 +31,7 @@ OV5640 ov5640;
 
 const unsigned long WIFI_RETRY_MS          = 4000;
 const unsigned long TOKEN_REFRESH_MARGIN_MS = 60000;
-const unsigned long CAP_POLL_INTERVAL_MS   = 500;  // poll Firestore every 500 ms
+const unsigned long CAP_POLL_INTERVAL_MS   = 150;  // poll Firestore every 150 ms
 const unsigned long CAP_COOLDOWN_MS        = 3000; // minimum gap between captures (safety)
 
 WiFiClientSecure secureClient;
@@ -426,15 +426,15 @@ void captureAndUploadCap(const String& sessionId) {
     return;
   }
 
-  // Wait up to 500 ms for AF to confirm focus (continuous AF already running)
+  // Wait up to 200 ms for AF to confirm focus (continuous AF already running)
   {
     const unsigned long afStart = millis();
-    while (millis() - afStart < 500) {
+    while (millis() - afStart < 200) {
       if (ov5640.getFWStatus() == FW_STATUS_S_FOCUSED) {
         Serial.println("[CAM] AF focused");
         break;
       }
-      delay(50);
+      delay(30);
     }
   }
 
