@@ -348,10 +348,10 @@ export default function AdminPage() {
           </CardBody>
         </Card>
 
-        {/* Presentation Mode */}
+        {/* Dev Mode */}
         <Card className="shadow-sm border border-purple-100">
           <CardHeader className="pb-2 px-5 pt-4">
-            <h2 className="text-base font-semibold text-gray-700">Presentation Mode</h2>
+            <h2 className="text-base font-semibold text-gray-700">Dev Mode</h2>
           </CardHeader>
           <CardBody className="pt-0 px-5 pb-4 flex flex-col gap-4">
             {/* +1 ขวด (direct Firestore increment) */}
