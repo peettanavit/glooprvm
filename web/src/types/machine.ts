@@ -18,9 +18,9 @@ export interface BinFull {
 }
 
 export const BIN_CAPACITY: SlotCounts = {
-  SMALL: 101,   // 100 มล. (70% of 144)
-  MEDIUM: 84,   // 140 มล. (70% of 120)
-  LARGE: 101,   // 150 มล. (70% of 144)
+  SMALL:  32,
+  MEDIUM: 30,
+  LARGE:  20,
 };
 
 export const BIN_WARN_THRESHOLD = 0.8; // แจ้งเตือนเมื่อใช้ >= 80%

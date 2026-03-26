@@ -28,6 +28,7 @@ OV5640 ov5640;
 
 const unsigned long WIFI_RETRY_MS = 4000;
 const unsigned long REJECT_HOLD_MS = 1200;
+const unsigned long PROCESSING_TIMEOUT_MS = 8000; // reset to READY if slot sensor never fires
 const unsigned long TOKEN_REFRESH_MARGIN_MS = 60000;
 const unsigned long SOLENOID_PULSE_MS = 600;
 // Ignore slot interrupts for this many ms after solenoid fires.
@@ -39,6 +40,7 @@ unsigned long lastWiFiRetryAt = 0;
 unsigned long lastFirestorePollAt = 0;
 unsigned long tokenExpiresAt = 0;
 unsigned long rejectUntil = 0;
+unsigned long processingStartAt = 0;
 bool wifiBeginInProgress = false;
 bool timeInitialized = false;
 
@@ -53,6 +55,9 @@ struct MachineState {
   // Explicit capture trigger written by web/button/sensor.
   // Empty string = no trigger pending.
   String triggerSource = "";
+  // Presentation mode: admin writes "SMALL"/"MEDIUM"/"LARGE" to simulate slot sensor.
+  // Empty string = no sim pending.
+  String simSlot = "";
   bool exists = false;
 };
 
@@ -102,7 +107,7 @@ bool initCamera() {
   config.pixel_format = PIXFORMAT_JPEG;
   config.grab_mode = CAMERA_GRAB_LATEST;
   config.fb_location = CAMERA_FB_IN_PSRAM;
-  config.jpeg_quality = 5;
+  config.jpeg_quality = 12;
   config.fb_count = 2;
 
   esp_err_t err = esp_camera_init(&config);
@@ -430,6 +435,9 @@ bool firestoreGet(MachineState& outState) {
   if (fields["trigger_source"]["stringValue"].is<const char*>()) {
     parsed.triggerSource = fields["trigger_source"]["stringValue"].as<const char*>();
   }
+  if (fields["sim_slot"]["stringValue"].is<const char*>()) {
+    parsed.simSlot = fields["sim_slot"]["stringValue"].as<const char*>();
+  }
 
   int score = 0;
   if (parseIntField(fields["session_score"], score)) {
@@ -510,6 +518,34 @@ bool firestoreClearTrigger() {
   return (code >= 200 && code < 300);
 }
 
+bool firestoreClearSimSlot() {
+  HTTPClient http;
+  const String url = String("https://firestore.googleapis.com/v1/projects/") +
+                     FIREBASE_PROJECT_ID +
+                     "/databases/(default)/documents:commit";
+  const String docPath = String("projects/") + FIREBASE_PROJECT_ID +
+                         "/databases/(default)/documents/machines/" + MACHINE_ID;
+
+  DynamicJsonDocument payload(512);
+  JsonObject update = payload["writes"][0]["update"].to<JsonObject>();
+  update["name"] = docPath;
+  update["fields"]["sim_slot"]["stringValue"] = "";
+  payload["writes"][0]["updateMask"]["fieldPaths"][0] = "sim_slot";
+
+  String payloadText;
+  serializeJson(payload, payloadText);
+
+  http.setTimeout(8000);
+  http.begin(secureClient, url);
+  http.addHeader("Authorization", String("Bearer ") + idToken);
+  http.addHeader("Content-Type", "application/json");
+  int code = http.POST(payloadText);
+  http.end();
+
+  if (code == 401) { idToken = ""; return false; }
+  return (code >= 200 && code < 300);
+}
+
 bool firestoreSlotEvent(const String& size) {
   HTTPClient http;
   const String url = String("https://firestore.googleapis.com/v1/projects/") +
@@ -518,20 +554,18 @@ bool firestoreSlotEvent(const String& size) {
   const String docPath = String("projects/") + FIREBASE_PROJECT_ID +
                          "/databases/(default)/documents/machines/" + MACHINE_ID;
 
-  DynamicJsonDocument payload(1536);
+  DynamicJsonDocument payload(1024);
 
-  // Write 1: increment slotCounts.<size> + set timestamps
-  // Note: session_score is incremented by the Python AI listener based on the AI result
-  // (1 = lipo/SMALL, 2 = cvitt/MEDIUM, 3 = m150/LARGE), not by the physical slot sensor.
+  // Write 1: set timestamps
+  // Note: session_score AND slotCounts are both incremented by the Python AI listener
+  // based on the AI result (1=lipo/SMALL, 2=cvitt/MEDIUM, 3=m150/LARGE).
+  // The physical slot sensor only signals that the bottle has physically dropped.
   JsonObject transform = payload["writes"][0]["transform"].to<JsonObject>();
   transform["document"] = docPath;
-  JsonObject ft0 = transform["fieldTransforms"][0].to<JsonObject>();
-  ft0["fieldPath"] = String("slotCounts.") + size;
-  ft0["increment"]["integerValue"] = "1";
-  JsonObject ft2 = transform["fieldTransforms"][1].to<JsonObject>();
+  JsonObject ft2 = transform["fieldTransforms"][0].to<JsonObject>();
   ft2["fieldPath"] = "updatedAt";
   ft2["setToServerValue"] = "REQUEST_TIME";
-  JsonObject ft3 = transform["fieldTransforms"][2].to<JsonObject>();
+  JsonObject ft3 = transform["fieldTransforms"][1].to<JsonObject>();
   ft3["fieldPath"] = "lastSlotEvent.timestamp";
   ft3["setToServerValue"] = "REQUEST_TIME";
 
@@ -577,6 +611,7 @@ void startSolenoid() {
   digitalWrite(SOLENOID_PIN, LOW); // active-low relay: LOW = energised = solenoid open
   solenoidOnAt = millis();
   solenoidActive = true;
+  processingStartAt = millis();
 }
 
 void updateSolenoid() {
@@ -617,11 +652,11 @@ void handleBottleInsert() {
         }
       }
 
-      // Discard 10 frames so AE/AWB can settle before the real capture.
-      for (int i = 0; i < 10; i++) {
+      // Discard 3 frames so AE/AWB can settle before the real capture.
+      for (int i = 0; i < 3; i++) {
         camera_fb_t* dummy = esp_camera_fb_get();
         if (dummy) esp_camera_fb_return(dummy);
-        delay(100);
+        delay(50);
       }
 
       camera_fb_t* fb = esp_camera_fb_get();
@@ -786,6 +821,32 @@ void loop() {
     }
   }
 
+  if (machineState.status == "PROCESSING" && processingStartAt > 0 &&
+      millis() - processingStartAt >= PROCESSING_TIMEOUT_MS) {
+    processingStartAt = 0;
+    Serial.println("[RVM] PROCESSING timeout — slot sensor never fired, resetting to READY");
+    if (firestorePatchStatus("READY")) {
+      machineState.status = "READY";
+    }
+  }
+
+  // Presentation mode: admin wrote sim_slot → execute as if physical sensor fired.
+  if (machineState.simSlot.length() > 0) {
+    const String slot = machineState.simSlot;
+    machineState.simSlot = "";
+    firestoreClearSimSlot();
+    if (machineState.status == "PROCESSING") {
+      Serial.printf("[SIM] slot sensor %s triggered from admin\n", slot.c_str());
+      if (firestoreSlotEvent(slot)) {
+        machineState.status = "READY";
+        processingStartAt = 0;
+      }
+    } else {
+      Serial.printf("[SIM] sim_slot %s ignored: status=%s (not PROCESSING)\n",
+                    slot.c_str(), machineState.status.c_str());
+    }
+  }
+
   if (!isSessionActive(machineState)) {
     delay(20);
     return;
@@ -807,6 +868,7 @@ void loop() {
         Serial.println("[Slot] SMALL ignored: solenoid guard active (EMI suppression)");
       } else if (firestoreSlotEvent("SMALL")) {
         machineState.status = "READY";
+        processingStartAt = 0;
       }
     } else {
       Serial.println("[Slot] SMALL ignored: not PROCESSING");
@@ -821,6 +883,7 @@ void loop() {
         Serial.println("[Slot] MEDIUM ignored: solenoid guard active (EMI suppression)");
       } else if (firestoreSlotEvent("MEDIUM")) {
         machineState.status = "READY";
+        processingStartAt = 0;
       }
     } else {
       Serial.println("[Slot] MEDIUM ignored: not PROCESSING");
@@ -835,6 +898,7 @@ void loop() {
         Serial.println("[Slot] LARGE ignored: solenoid guard active (EMI suppression)");
       } else if (firestoreSlotEvent("LARGE")) {
         machineState.status = "READY";
+        processingStartAt = 0;
       }
     } else {
       Serial.println("[Slot] LARGE ignored: not PROCESSING");

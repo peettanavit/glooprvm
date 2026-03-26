@@ -103,6 +103,20 @@ export async function forceSetStatus(status: MachineStatus): Promise<void> {
   await updateDoc(machineRef, { status, updatedAt: serverTimestamp() });
 }
 
+export async function simIncrementSlot(slot: "SMALL" | "MEDIUM" | "LARGE"): Promise<void> {
+  await updateDoc(machineRef, {
+    [`slotCounts.${slot}`]: increment(1),
+    updatedAt: serverTimestamp(),
+  });
+}
+
+export async function simSlotSensor(slot: "SMALL" | "MEDIUM" | "LARGE"): Promise<void> {
+  await updateDoc(machineRef, {
+    sim_slot: slot,
+    updatedAt: serverTimestamp(),
+  });
+}
+
 export async function updateBinFull(binFull: BinFull): Promise<void> {
   await updateDoc(machineRef, {
     "bin_full.SMALL":  binFull.SMALL,

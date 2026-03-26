@@ -18,6 +18,8 @@ import {
   forceSetStatus,
   resetMachine,
   restartSlave,
+  simIncrementSlot,
+  simSlotSensor,
   subscribeToMachine,
   subscribeToSortingLogs,
   updateBinFull,
@@ -60,6 +62,7 @@ export default function AdminPage() {
   const [restartSlaveError, setRestartSlaveError] = useState<string | null>(null);
   const [forceReleasing, setForceReleasing] = useState(false);
   const [forceReleaseError, setForceReleaseError] = useState<string | null>(null);
+  const [simSlotLoading, setSimSlotLoading] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -342,6 +345,60 @@ export default function AdminPage() {
                 ))}
               </div>
             )}
+          </CardBody>
+        </Card>
+
+        {/* Presentation Mode */}
+        <Card className="shadow-sm border border-purple-100">
+          <CardHeader className="pb-2 px-5 pt-4">
+            <h2 className="text-base font-semibold text-gray-700">Presentation Mode</h2>
+          </CardHeader>
+          <CardBody className="pt-0 px-5 pb-4 flex flex-col gap-4">
+            {/* +1 ขวด (direct Firestore increment) */}
+            <div>
+              <p className="text-xs text-gray-400 mb-2">เพิ่มจำนวนขวดโดยตรง (ไม่ต้องมี ESP32)</p>
+              <div className="flex gap-2">
+                {(["SMALL", "MEDIUM", "LARGE"] as const).map((slot) => (
+                  <Button
+                    key={slot}
+                    size="sm"
+                    color="secondary"
+                    variant="flat"
+                    className="flex-1 font-medium"
+                    isLoading={simSlotLoading === `inc-${slot}`}
+                    onPress={async () => {
+                      setSimSlotLoading(`inc-${slot}`);
+                      try { await simIncrementSlot(slot); } finally { setSimSlotLoading(null); }
+                    }}
+                  >
+                    +1 {slot === "SMALL" ? "Small" : slot === "MEDIUM" ? "Medium" : "Large"}
+                  </Button>
+                ))}
+              </div>
+            </div>
+
+            {/* Sim Slot Sensor (ESP32 executes firestoreSlotEvent) */}
+            <div>
+              <p className="text-xs text-gray-400 mb-2">จำลอง Limit Switch — ESP32 จะ trigger เหมือน sensor จริง (ต้องอยู่ใน PROCESSING)</p>
+              <div className="flex gap-2">
+                {(["SMALL", "MEDIUM", "LARGE"] as const).map((slot) => (
+                  <Button
+                    key={slot}
+                    size="sm"
+                    color="primary"
+                    variant="flat"
+                    className="flex-1 font-medium"
+                    isLoading={simSlotLoading === `sim-${slot}`}
+                    onPress={async () => {
+                      setSimSlotLoading(`sim-${slot}`);
+                      try { await simSlotSensor(slot); } finally { setSimSlotLoading(null); }
+                    }}
+                  >
+                    Sim {slot === "SMALL" ? "Small" : slot === "MEDIUM" ? "Medium" : "Large"}
+                  </Button>
+                ))}
+              </div>
+            </div>
           </CardBody>
         </Card>
 

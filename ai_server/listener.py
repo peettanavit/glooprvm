@@ -425,6 +425,10 @@ def process_machine(machine_id: str, data: dict):
         if is_valid:
             update_payload["result"] = detection["result"]
             update_payload["session_score"] = firestore.Increment(detection["result"])
+            _slot_map = {1: "SMALL", 2: "MEDIUM", 3: "LARGE"}
+            slot_name = _slot_map.get(detection["result"])
+            if slot_name:
+                update_payload[f"slotCounts.{slot_name}"] = firestore.Increment(1)
 
         machine_ref.update(update_payload)
 
