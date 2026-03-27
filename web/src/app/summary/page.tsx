@@ -71,8 +71,12 @@ export default function SummaryPage() {
                 savedSessionRef.current = state.session_id ?? "";
                 setSaved(true);
                 sessionStorage.setItem("summaryViewed", state.session_id ?? "");
-                // resetMachine failure is non-critical — score already saved;
-                // scheduled Cloud Function will clean up stale sessions.
+                // Unsubscribe before resetting so the listener doesn't fire
+                // with session_score=0 and overwrite the displayed score.
+                if (unsubscribeMachine) {
+                  unsubscribeMachine();
+                  unsubscribeMachine = null;
+                }
                 return resetMachine().catch((err) => {
                   console.error("resetMachine failed (non-critical):", err);
                 });
