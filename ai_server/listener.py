@@ -257,10 +257,9 @@ def detect_bottle(
     # ── Step 5: Master confident enough → accept directly ─────────────────────
     if ai_conf >= conf_threshold:
         mode = (f"dual-cam validator='{cap_name}'({cap_conf:.2f})"
-                if dual_cam else "")
-        suffix = f" [{mode}]" if mode else ""
+                if dual_cam else "single-cam (Slave offline or timed out)")
         return _base(True, result_code,
-                     f"accepted '{ai_label}' conf={ai_conf:.2f}{suffix}")
+                     f"accepted '{ai_label}' conf={ai_conf:.2f} [{mode}]")
 
     # ── Step 6: Slave rescue — master below threshold, slave can compensate ───
     if dual_cam:

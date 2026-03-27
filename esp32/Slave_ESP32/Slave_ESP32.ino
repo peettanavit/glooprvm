@@ -219,12 +219,9 @@ bool signIn() {
 
   if (code < 200 || code >= 300) {
     Serial.printf("[Auth] signIn failed (%d): %s\n", code, resp.c_str());
-    secureClient.stop();
     return false;
   }
-  bool ok = parseAuthResponse(resp, false);
-  secureClient.stop();
-  if (!ok) {
+  if (!parseAuthResponse(resp, false)) {
     Serial.println("[Auth] invalid signIn response");
     return false;
   }
@@ -246,12 +243,9 @@ bool doRefreshToken() {
 
   if (code < 200 || code >= 300) {
     Serial.printf("[Auth] token refresh failed (%d)\n", code);
-    secureClient.stop();
     return false;
   }
-  bool ok = parseAuthResponse(resp, true);
-  secureClient.stop();
-  return ok;
+  return parseAuthResponse(resp, true);
 }
 
 bool ensureAuth() {
@@ -287,15 +281,12 @@ SlaveState firestoreGetState() {
 
   if (code == 401) {
     idToken = "";
-    secureClient.stop();
     return out;
   }
   if (code < 200 || code >= 300) {
     Serial.printf("[Firestore] GET failed (%d)\n", code);
-    secureClient.stop();
     return out;
   }
-  secureClient.stop();
 
   DynamicJsonDocument doc(4096);
   if (deserializeJson(doc, body)) return out;
@@ -339,7 +330,6 @@ bool firestoreClearSlaveRestart() {
   http.addHeader("Content-Type", "application/json");
   int code = http.POST(payloadText);
   http.end();
-  secureClient.stop();
   return (code >= 200 && code < 300);
 }
 
@@ -365,15 +355,12 @@ bool uploadCapToStorage(camera_fb_t* fb, const String& storagePath) {
 
   if (code == 401) {
     idToken = "";
-    secureClient.stop();
     return false;
   }
   if (code < 200 || code >= 300) {
     Serial.printf("[Storage] upload failed (%d): %s\n", code, resp.c_str());
-    secureClient.stop();
     return false;
   }
-  secureClient.stop();
   Serial.printf("[Storage] cap uploaded: %s\n", storagePath.c_str());
   return true;
 }
@@ -421,15 +408,12 @@ bool firestoreWriteCapPath(const String& storagePath) {
 
   if (code == 401) {
     idToken = "";
-    secureClient.stop();
     return false;
   }
   if (code < 200 || code >= 300) {
     Serial.printf("[Firestore] cap_storage_path write failed (%d): %s\n", code, resp.c_str());
-    secureClient.stop();
     return false;
   }
-  secureClient.stop();
   Serial.println("[Firestore] cap_storage_path written");
   return true;
 }
