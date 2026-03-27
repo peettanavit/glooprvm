@@ -30,7 +30,7 @@ const unsigned long WIFI_RETRY_MS = 4000;
 const unsigned long REJECT_HOLD_MS = 1200;
 const unsigned long PROCESSING_TIMEOUT_MS = 8000; // reset to READY if slot sensor never fires
 const unsigned long TOKEN_REFRESH_MARGIN_MS = 60000;
-const unsigned long SOLENOID_PULSE_MS = 600;
+const unsigned long SOLENOID_PULSE_MS = 2500;
 // Ignore slot interrupts for this many ms after solenoid fires.
 // Relay switching causes EMI that can spuriously trigger limit switch GPIOs.
 const unsigned long SLOT_GUARD_MS = 1000;

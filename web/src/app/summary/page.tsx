@@ -19,6 +19,7 @@ const initialState: MachineState = {
 export default function SummaryPage() {
   const router = useRouter();
   const [machine, setMachine] = useState<MachineState>(initialState);
+  const [displayScore, setDisplayScore] = useState<number | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -45,7 +46,10 @@ export default function SummaryPage() {
         if (cancelled) return;
         unsubscribeMachine = subscribeToMachine(
           (state) => {
-            setMachine(state);
+            if (state.status === "COMPLETED") {
+              setMachine(state);
+              setDisplayScore((prev) => prev ?? state.session_score);
+            }
             const isManual = new URLSearchParams(window.location.search).get("manual") === "1";
             if (!isManual && state.status !== "COMPLETED") {
               router.replace("/dashboard");
@@ -133,7 +137,7 @@ export default function SummaryPage() {
         <Card className="shadow-md border border-green-100">
           <CardBody className="py-8 px-6 text-center">
             <p className="text-gray-500 text-sm mb-2">คะแนนที่ได้รับเซสชันนี้</p>
-            <p className="text-6xl font-bold text-green-600 mb-1">{machine.session_score}</p>
+            <p className="text-6xl font-bold text-green-600 mb-1">{displayScore ?? machine.session_score}</p>
             <p className="text-gray-400 text-sm">คะแนน</p>
 
             <div className="mt-4 pt-4 border-t border-gray-100">
