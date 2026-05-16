@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<title>Gloop RVM — คู่มือการพัฒนาโปรแกรม</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@300;400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+
+:root {
+  --bg: #ffffff;
+  --bg2: #f8fafc;
+  --bg3: #f1f5f9;
+  --border: #e2e8f0;
+  --text: #0f172a;
+  --text2: #334155;
+  --text3: #64748b;
+  --text4: #94a3b8;
+  --primary: #6366f1;
+  --primary-light: #eef2ff;
+  --green: #059669;
+  --green-light: #ecfdf5;
+  --amber: #d97706;
+  --amber-light: #fffbeb;
+  --red: #dc2626;
+  --red-light: #fef2f2;
+  --blue: #2563eb;
+  --blue-light: #eff6ff;
+  --purple: #7c3aed;
+  --purple-light: #f5f3ff;
+}
+
+body {
+  width: 794px;
+  background: var(--bg);
+  font-family: 'IBM Plex Sans Thai', sans-serif;
+  color: var(--text);
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+/* ─── PAGE BREAKS ─── */
+.page {
+  width: 794px;
+  min-height: 1123px;
+  padding: 44px 48px;
+  position: relative;
+  page-break-after: always;
+  overflow: hidden;
+}
+.page:last-child { page-break-after: auto; }
+
+/* ─── HEADER STRIPE ─── */
+.page-header {
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 28px;
+  padding-bottom: 16px;
+  border-bottom: 2px solid var(--border);
+}
+.page-header-left { display:flex; flex-direction:column; gap:4px; }
+.doc-eyebrow {
+  font-size:9px; font-weight:700; letter-spacing:1.4px; text-transform:uppercase;
+  color: var(--primary); background: var(--primary-light);
+  padding: 3px 10px; border-radius:4px; width:fit-content;
+}
+.doc-title {
+  font-size:22px; font-weight:800; color:var(--text); letter-spacing:-.5px;
+  line-height:1.15;
+}
+.doc-sub { font-size:11px; color:var(--text3); font-weight:400; margin-top:1px; }
+.doc-github {
+  display:flex; flex-direction:column; align-items:flex-end; gap:4px;
+}
+.github-badge {
+  display:flex; align-items:center; gap:6px;
+  background:#0f172a; color:#f1f5f9;
+  border-radius:7px; padding:7px 12px;
+  font-size:10px; font-weight:600;
+  font-family:'IBM Plex Mono',monospace;
+}
+.github-url { font-size:8.5px; color:var(--text3); text-align:right; }
+
+/* ─── SECTION ─── */
+.section { margin-bottom:22px; }
+.section-title {
+  font-size:13px; font-weight:800; color:var(--text);
+  display:flex; align-items:center; gap:8px;
+  margin-bottom:10px; padding-bottom:6px;
+  border-bottom:1.5px solid var(--border);
+}
+.section-num {
+  width:22px; height:22px; border-radius:6px;
+  background:var(--primary); color:#fff;
+  font-size:11px; font-weight:700;
+  display:flex; align-items:center; justify-content:center;
+  flex-shrink:0;
+}
+
+/* ─── CALLOUT ─── */
+.callout {
+  border-radius:8px; padding:10px 13px; margin:8px 0;
+  border-left:3px solid;
+  font-size:9.5px; line-height:1.65;
+}
+.callout.info  { background:var(--blue-light); border-color:var(--blue); color:#1e3a8a; }
+.callout.warn  { background:var(--amber-light); border-color:var(--amber); color:#78350f; }
+.callout.tip   { background:var(--green-light); border-color:var(--green); color:#064e3b; }
+.callout.note  { background:var(--bg3); border-color:#94a3b8; color:var(--text2); }
+.callout strong { font-weight:700; }
+
+/* ─── CODE ─── */
+pre {
+  background:#0f172a; color:#e2e8f0;
+  border-radius:8px; padding:11px 14px;
+  font-family:'IBM Plex Mono',monospace; font-size:9px;
+  line-height:1.7; margin:6px 0; overflow:hidden;
+  border:1px solid #1e293b;
+}
+code {
+  font-family:'IBM Plex Mono',monospace; font-size:9px;
+  background:#f1f5f9; color:#be185d; padding:1px 5px; border-radius:3px;
+}
+pre code { background:transparent; color:inherit; padding:0; }
+
+.cm { color:#64748b; }   /* comment */
+.kw { color:#93c5fd; }   /* keyword */
+.st { color:#86efac; }   /* string */
+.va { color:#fde68a; }   /* variable */
+.op { color:#c084fc; }   /* operator */
+.nm { color:#67e8f9; }   /* number */
+
+/* ─── TABLE ─── */
+table { width:100%; border-collapse:collapse; font-size:9.5px; margin:6px 0; }
+th {
+  background:var(--bg3); color:var(--text2); font-weight:700;
+  padding:7px 10px; text-align:left; border:1px solid var(--border);
+  font-size:9px; text-transform:uppercase; letter-spacing:.4px;
+}
+td { padding:6px 10px; border:1px solid var(--border); color:var(--text2); vertical-align:top; }
+tr:nth-child(even) td { background:var(--bg2); }
+
+/* ─── STEP LIST ─── */
+.steps { display:flex; flex-direction:column; gap:7px; }
+.step {
+  display:flex; gap:10px; align-items:flex-start;
+}
+.step-num {
+  width:20px; height:20px; border-radius:50%; flex-shrink:0;
+  background:var(--primary); color:#fff; font-size:9.5px; font-weight:700;
+  display:flex; align-items:center; justify-content:center; margin-top:1px;
+}
+.step-body { flex:1; font-size:9.5px; color:var(--text2); line-height:1.6; }
+.step-body strong { color:var(--text); font-weight:700; }
+
+/* ─── BADGE ROW ─── */
+.badge-row { display:flex; flex-wrap:wrap; gap:5px; margin:5px 0; }
+.badge {
+  font-size:8.5px; font-weight:600; padding:2px 9px; border-radius:99px;
+  border:1px solid; font-family:'IBM Plex Mono',monospace;
+}
+.badge.green  { background:var(--green-light); color:var(--green); border-color:#6ee7b7; }
+.badge.blue   { background:var(--blue-light); color:var(--blue); border-color:#93c5fd; }
+.badge.purple { background:var(--purple-light); color:var(--purple); border-color:#c4b5fd; }
+.badge.amber  { background:var(--amber-light); color:var(--amber); border-color:#fcd34d; }
+.badge.gray   { background:var(--bg3); color:var(--text3); border-color:var(--border); }
+.badge.red    { background:var(--red-light); color:var(--red); border-color:#fca5a5; }
+
+/* ─── COMPONENT CARD ─── */
+.comp-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin:8px 0; }
+.comp-card {
+  border:1px solid var(--border); border-radius:9px;
+  padding:10px 12px; background:var(--bg2);
+}
+.comp-card-title {
+  font-size:10px; font-weight:700; color:var(--text); margin-bottom:4px;
+  display:flex; align-items:center; gap:5px;
+}
+.comp-card-body { font-size:9px; color:var(--text2); line-height:1.65; }
+
+/* ─── TWO COL ─── */
+.two-col { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+
+/* ─── FOOTER ─── */
+.page-footer {
+  position:absolute; bottom:20px; left:48px; right:48px;
+  display:flex; justify-content:space-between; align-items:center;
+  border-top:1px solid var(--border); padding-top:8px;
+  font-size:8px; color:var(--text4);
+}
+
+/* ─── FLOW DIAGRAM ─── */
+.flow-row { display:flex; align-items:center; gap:0; margin:8px 0; flex-wrap:nowrap; }
+.flow-box {
+  border-radius:7px; border:1px solid; padding:6px 8px;
+  font-size:8.5px; font-weight:600; text-align:center; white-space:nowrap;
+  line-height:1.3;
+}
+.flow-arr { font-size:14px; color:var(--text4); padding:0 3px; flex-shrink:0; }
+
+/* ─── ENV TABLE ─── */
+.env-block {
+  background:#0f172a; color:#e2e8f0; border-radius:8px; padding:11px 14px;
+  font-family:'IBM Plex Mono',monospace; font-size:8.5px; line-height:1.9;
+  border:1px solid #1e293b; margin:6px 0;
+}
+.env-key   { color:#67e8f9; }
+.env-val   { color:#6b7280; }
+.env-comment { color:#374151; font-size:8px; }
+</style>
+</head>
+<body>
+
+<!-- ══════════════════════════════════════════════════════
+     PAGE 1 — COVER + OVERVIEW + PREREQUISITES
+══════════════════════════════════════════════════════ -->
+<div class="page">
+
+  <div class="page-header">
+    <div class="page-header-left">
+      <div class="doc-eyebrow">Software Engineering Final Project</div>
+      <div class="doc-title">คู่มือการพัฒนาโปรแกรม<br>Gloop RVM</div>
+      <div class="doc-sub">วิธีการติดตั้ง ตั้งค่า และทดสอบระบบ Smart Reverse Vending Machine</div>
+    </div>
+    <div class="doc-github">
+      <div class="github-badge">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="#f1f5f9"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        github.com/peettanavit/glooprvm
+      </div>
+      <div class="github-url">https://github.com/peettanavit/glooprvm</div>
+    </div>
+  </div>
+
+  <!-- SYSTEM OVERVIEW -->
+  <div class="section">
+    <div class="section-title">
+      <div class="section-num">★</div>
+      ภาพรวมของระบบและส่วนประกอบ
+    </div>
+    <div class="comp-grid">
+      <div class="comp-card">
+        <div class="comp-card-title">🌐 Web Application</div>
+        <div class="comp-card-body">
+          <div class="badge-row"><span class="badge blue">Next.js 15</span><span class="badge blue">TypeScript</span><span class="badge blue">Firebase</span></div>
+          โฟลเดอร์: <code>web/</code><br>
+          UI สำหรับผู้ใช้ — Login, Dashboard แสดงคะแนน real-time, Rewards, Profile<br>
+          <strong>ทดสอบได้ทันทีโดยไม่ต้องมี Hardware</strong>
+        </div>
+      </div>
+      <div class="comp-card">
+        <div class="comp-card-title">🤖 Python AI Service</div>
+        <div class="comp-card-body">
+          <div class="badge-row"><span class="badge purple">Python 3.10+</span><span class="badge purple">YOLOv8</span><span class="badge purple">FastAPI</span></div>
+          โฟลเดอร์: <code>ai_server/</code><br>
+          ฟัง Firestore → วิเคราะห์ภาพขวดด้วย YOLO → เขียนผลกลับ<br>
+          <strong>ทดสอบได้โดยอัปโหลดภาพผ่าน REST API</strong>
+        </div>
+      </div>
+      <div class="comp-card">
+        <div class="comp-card-title">⚡ Firebase Cloud Functions</div>
+        <div class="comp-card-body">
+          <div class="badge-row"><span class="badge amber">Node.js 22</span><span class="badge amber">Firebase</span></div>
+          โฟลเดอร์: <code>functions/</code><br>
+          <code>uploadBottleImage</code> — รับภาพจาก ESP32, บันทึกใน Storage, ตั้ง status<br>
+          <strong>Deploy บน Firebase (ไม่ต้อง run local)</strong>
+        </div>
+      </div>
+      <div class="comp-card">
+        <div class="comp-card-title">🔌 ESP32 Firmware (Hardware)</div>
+        <div class="comp-card-body">
+          <div class="badge-row"><span class="badge gray">Arduino C++</span><span class="badge gray">ESP32-S3</span></div>
+          โฟลเดอร์: <code>esp32/</code><br>
+          Master: กล้อง label + solenoid | Slave: กล้อง cap<br>
+          <strong>ต้องมีบอร์ดจริง — ดู Section ทดสอบโดยไม่มี Hardware</strong>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PREREQUISITES -->
+  <div class="section">
+    <div class="section-title">
+      <div class="section-num">0</div>
+      Software ที่ต้องติดตั้งก่อน (Prerequisites)
+    </div>
+    <table>
+      <thead>
+        <tr><th>Software</th><th>Version</th><th>วัตถุประสงค์</th><th>Download</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><strong>Node.js</strong></td><td>18 LTS หรือใหม่กว่า</td><td>Web App + Firebase CLI</td><td>nodejs.org</td></tr>
+        <tr><td><strong>Python</strong></td><td>3.10 – 3.12</td><td>AI Service (YOLOv8)</td><td>python.org</td></tr>
+        <tr><td><strong>Git</strong></td><td>ใดก็ได้</td><td>Clone โปรเจกต์</td><td>git-scm.com</td></tr>
+        <tr><td><strong>Firebase CLI</strong></td><td>13+</td><td>Deploy Functions + Rules</td><td><code>npm i -g firebase-tools</code></td></tr>
+        <tr><td>Arduino IDE 2.x <span style="font-weight:400;color:#64748b;">(ถ้ามี Hardware)</span></td><td>2.x</td><td>Flash ESP32 firmware</td><td>arduino.cc</td></tr>
+      </tbody>
+    </table>
+    <div class="callout tip">
+      <strong>ทดสอบได้แม้ไม่มี Hardware:</strong> Web App และ Python AI Service สามารถทดสอบครบวงจรได้ผ่าน Firebase Emulator และ REST API โดยไม่ต้องมี ESP32 จริง — ดู Section 5
+    </div>
+  </div>
+
+  <!-- STEP 1 — CLONE -->
+  <div class="section">
+    <div class="section-title">
+      <div class="section-num">1</div>
+      Clone Source Code จาก GitHub
+    </div>
+    <pre><span class="cm"># 1. Clone repository</span>
+<span class="kw">git</span> clone https://github.com/peettanavit/glooprvm.git
+<span class="kw">cd</span> glooprvm
+
+<span class="cm"># โครงสร้างโฟลเดอร์หลัก</span>
+glooprvm/
+├── web/          <span class="cm">← Next.js Web App</span>
+├── ai_server/    <span class="cm">← Python AI + YOLO</span>
+├── functions/    <span class="cm">← Firebase Cloud Functions</span>
+└── esp32/        <span class="cm">← Arduino Firmware (Master + Slave)</span></pre>
+  </div>
+
+  <div class="page-footer">
+    <span>Gloop RVM — คู่มือการพัฒนาโปรแกรม</span>
+    <span>github.com/peettanavit/glooprvm</span>
+    <span>หน้า 1 / 3</span>
+  </div>
+</div>
+
+
+<!-- ══════════════════════════════════════════════════════
+     PAGE 2 — WEB + PYTHON AI + CLOUD FUNCTIONS
+══════════════════════════════════════════════════════ -->
+<div class="page">
+
+  <div style="border-bottom:2px solid var(--border); padding-bottom:8px; margin-bottom:22px; display:flex; justify-content:space-between; align-items:center;">
+    <div style="font-size:13px; font-weight:800; color:var(--text);">การติดตั้งและรัน — รายละเอียด</div>
+    <div style="font-size:9px; color:var(--text4); font-family:monospace;">github.com/peettanavit/glooprvm</div>
+  </div>
+
+  <!-- SECTION 2 — WEB -->
+  <div class="section">
+    <div class="section-title">
+      <div class="section-num">2</div>
+      Web Application (Next.js) — <span style="font-weight:400; font-size:11px;">โฟลเดอร์ <code>web/</code></span>
+    </div>
+
+    <div class="two-col">
+      <div>
+        <div style="font-size:10px; font-weight:700; margin-bottom:5px; color:var(--text2);">2.1 ติดตั้ง Dependencies</div>
+        <pre><span class="kw">cd</span> web
+<span class="kw">npm</span> install</pre>
+
+        <div style="font-size:10px; font-weight:700; margin:8px 0 5px; color:var(--text2);">2.2 ตั้งค่า Environment Variables</div>
+        <pre><span class="cm"># สร้างไฟล์ .env.local จาก template</span>
+<span class="kw">cp</span> .env.example .env.local</pre>
+        <div class="env-block">
+<span class="env-key">NEXT_PUBLIC_FIREBASE_API_KEY</span>=<span class="env-val">AIza...</span>
+<span class="env-key">NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN</span>=<span class="env-val">glooprvm.firebaseapp.com</span>
+<span class="env-key">NEXT_PUBLIC_FIREBASE_PROJECT_ID</span>=<span class="env-val">glooprvm</span>
+<span class="env-key">NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET</span>=<span class="env-val">glooprvm.firebasestorage.app</span>
+<span class="env-key">NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID</span>=<span class="env-val">...</span>
+<span class="env-key">NEXT_PUBLIC_FIREBASE_APP_ID</span>=<span class="env-val">1:...</span>
+        </div>
+        <div class="callout info" style="margin-top:6px;">
+          <strong>รับค่า Firebase Config ได้จาก:</strong> Firebase Console → Project Settings → Your apps → Web app → Config snippet
+        </div>
+      </div>
+      <div>
+        <div style="font-size:10px; font-weight:700; margin-bottom:5px; color:var(--text2);">2.3 รันในโหมด Development</div>
+        <pre><span class="kw">npm</span> run dev
+<span class="cm"># เปิด browser ที่ http://localhost:3000</span></pre>
+
+        <div style="font-size:10px; font-weight:700; margin:8px 0 5px; color:var(--text2);">2.4 Build สำหรับ Production</div>
+        <pre><span class="kw">npm</span> run build
+<span class="kw">npm</span> run start</pre>
+
+        <div style="font-size:10px; font-weight:700; margin:8px 0 5px; color:var(--text2);">หน้าที่ทดสอบได้</div>
+        <table>
+          <tr><th>Route</th><th>ฟังก์ชัน</th></tr>
+          <tr><td><code>/login</code></td><td>สมัครสมาชิก / เข้าสู่ระบบ</td></tr>
+          <tr><td><code>/dashboard</code></td><td>สถานะเครื่อง + คะแนน real-time</td></tr>
+          <tr><td><code>/profile</code></td><td>ประวัติการรีไซเคิล</td></tr>
+          <tr><td><code>/rewards</code></td><td>แลกรางวัลด้วยคะแนน</td></tr>
+          <tr><td><code>/admin</code></td><td>จัดการระบบ (Admin only)</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- SECTION 3 — PYTHON AI -->
+  <div class="section">
+    <div class="section-title">
+      <div class="section-num">3</div>
+      Python AI Service (YOLOv8) — <span style="font-weight:400; font-size:11px;">โฟลเดอร์ <code>ai_server/</code></span>
+    </div>
+
+    <div class="two-col">
+      <div>
+        <div style="font-size:10px; font-weight:700; margin-bottom:5px; color:var(--text2);">3.1 สร้าง Virtual Environment</div>
+        <pre><span class="kw">cd</span> ai_server
+
+<span class="cm"># Windows</span>
+<span class="kw">python</span> -m venv venv
+<span class="kw">venv\Scripts\activate</span>
+
+<span class="cm"># macOS / Linux</span>
+<span class="kw">python3</span> -m venv venv
+<span class="kw">source</span> venv/bin/activate</pre>
+
+        <div style="font-size:10px; font-weight:700; margin:8px 0 5px; color:var(--text2);">3.2 ติดตั้ง Libraries</div>
+        <pre><span class="kw">pip</span> install -r requirements.txt
+
+<span class="cm"># Libraries หลัก:</span>
+<span class="cm"># ultralytics (YOLOv8), opencv-python-headless,</span>
+<span class="cm"># firebase-admin, fastapi, uvicorn, python-dotenv</span></pre>
+
+        <div style="font-size:10px; font-weight:700; margin:8px 0 5px; color:var(--text2);">3.3 วาง Service Account Key</div>
+        <pre><span class="cm"># วางไฟล์ glooprvm-xxxx.json ใน ai_server/</span>
+<span class="cm"># ดาวน์โหลดจาก Firebase Console →</span>
+<span class="cm"># Project Settings → Service Accounts → Generate Key</span></pre>
+      </div>
+      <div>
+        <div style="font-size:10px; font-weight:700; margin-bottom:5px; color:var(--text2);">3.4 สร้างไฟล์ .env</div>
+        <div class="env-block">
+<span class="env-key">FIREBASE_SERVICE_ACCOUNT</span>=<span class="env-val">./glooprvm-xxxx.json</span>
+<span class="env-key">FIREBASE_STORAGE_BUCKET</span>=<span class="env-val">glooprvm.firebasestorage.app</span>
+<span class="env-key">MACHINE_ID</span>=<span class="env-val">Gloop_01</span>
+<span class="env-key">AI_CONFIDENCE_THRESHOLD</span>=<span class="env-val">0.50</span>
+<span class="env-key">AI_SAFETY_LOCK_THRESHOLD</span>=<span class="env-val">0.30</span>
+<span class="env-key">CAP_WAIT_SECONDS</span>=<span class="env-val">2.0</span>
+        </div>
+
+        <div style="font-size:10px; font-weight:700; margin:8px 0 5px; color:var(--text2);">3.5 วาง YOLO Models</div>
+        <pre>ai_server/models/
+├── label_model.pt  <span class="cm">← Primary (label camera)</span>
+└── cap_model.pt    <span class="cm">← Validator (cap camera)</span></pre>
+
+        <div style="font-size:10px; font-weight:700; margin:8px 0 5px; color:var(--text2);">3.6 รัน AI Service</div>
+        <pre><span class="cm"># วิธี 1 — listener เดี่ยว</span>
+<span class="kw">python</span> listener.py
+
+<span class="cm"># วิธี 2 — FastAPI พร้อม /health endpoint</span>
+<span class="kw">python</span> api.py
+<span class="cm"># หรือ</span>
+<span class="kw">uvicorn</span> api:app --host 0.0.0.0 --port 8000</pre>
+
+        <div class="callout tip" style="margin-top:6px;">
+          <strong>ทดสอบ AI ผ่าน REST:</strong> เปิด <code>http://localhost:8000/health</code> เพื่อตรวจสถานะ, <code>/status</code> เพื่อดูผลการวิเคราะห์ล่าสุด
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SECTION 4 — CLOUD FUNCTIONS -->
+  <div class="section">
+    <div class="section-title">
+      <div class="section-num">4</div>
+      Firebase Cloud Functions — <span style="font-weight:400; font-size:11px;">โฟลเดอร์ <code>functions/</code></span>
+    </div>
+    <div class="two-col">
+      <div>
+        <pre><span class="kw">cd</span> functions
+<span class="kw">npm</span> install
+
+<span class="cm"># Login Firebase (ครั้งแรก)</span>
+<span class="kw">firebase</span> login
+
+<span class="cm"># Deploy Cloud Functions</span>
+<span class="kw">firebase</span> deploy --only functions
+
+<span class="cm"># Deploy Firestore Rules + Storage Rules</span>
+<span class="kw">firebase</span> deploy --only firestore:rules,storage</pre>
+      </div>
+      <div>
+        <div class="callout warn">
+          <strong>หมายเหตุ:</strong> Cloud Functions ต้อง Deploy ขึ้น Firebase จริง (ไม่รัน local) เพราะ ESP32 เรียกผ่าน URL สาธารณะ ใช้ Firebase project <strong>glooprvm</strong> ซึ่งมีอยู่แล้ว — ขอสิทธิ์จากเจ้าของโปรเจกต์ หรือ deploy บน Firebase project ของตัวเอง
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="page-footer">
+    <span>Gloop RVM — คู่มือการพัฒนาโปรแกรม</span>
+    <span>github.com/peettanavit/glooprvm</span>
+    <span>หน้า 2 / 3</span>
+  </div>
+</div>
+
+
+<!-- ══════════════════════════════════════════════════════
+     PAGE 3 — ESP32 + NO-HARDWARE TEST + FLOW
+══════════════════════════════════════════════════════ -->
+<div class="page">
+
+  <div style="border-bottom:2px solid var(--border); padding-bottom:8px; margin-bottom:22px; display:flex; justify-content:space-between; align-items:center;">
+    <div style="font-size:13px; font-weight:800; color:var(--text);">ESP32 Firmware + การทดสอบโดยไม่มี Hardware</div>
+    <div style="font-size:9px; color:var(--text4); font-family:monospace;">github.com/peettanavit/glooprvm</div>
+  </div>
+
+  <!-- SECTION 5 — ESP32 -->
+  <div class="section">
+    <div class="section-title">
+      <div class="section-num">5</div>
+      ESP32 Firmware — <span style="font-weight:400; font-size:11px;">โฟลเดอร์ <code>esp32/</code> (ต้องมีบอร์ดจริง)</span>
+    </div>
+    <div class="two-col">
+      <div>
+        <div style="font-size:10px; font-weight:700; margin-bottom:5px; color:var(--text2);">5.1 ติดตั้ง Arduino IDE และ Board Package</div>
+        <div class="steps">
+          <div class="step">
+            <div class="step-num">1</div>
+            <div class="step-body">เปิด Arduino IDE 2.x → <strong>File → Preferences</strong><br>เพิ่ม Board Manager URL:<br><code>https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json</code></div>
+          </div>
+          <div class="step">
+            <div class="step-num">2</div>
+            <div class="step-body"><strong>Tools → Board → Boards Manager</strong> → ค้นหา <code>esp32 by Espressif Systems</code> → Install</div>
+          </div>
+          <div class="step">
+            <div class="step-num">3</div>
+            <div class="step-body">เลือก Board: <strong>Tools → Board → ESP32S3 Dev Module</strong></div>
+          </div>
+          <div class="step">
+            <div class="step-num">4</div>
+            <div class="step-body">ติดตั้ง Library: <strong>Sketch → Include Library → Manage Libraries</strong> → ค้นหา <code>ArduinoJson</code> v7+ → Install</div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div style="font-size:10px; font-weight:700; margin-bottom:5px; color:var(--text2);">5.2 ตั้งค่า Credentials</div>
+        <pre><span class="cm"># Master ESP32</span>
+<span class="kw">cp</span> esp32/config.example.h esp32/config.h
+<span class="cm"># แก้ไข config.h:</span>
+<span class="cm"># WIFI_SSID, WIFI_PASSWORD</span>
+<span class="cm"># FIREBASE_API_KEY, FIREBASE_PROJECT_ID</span>
+<span class="cm"># MACHINE_EMAIL, MACHINE_PASSWORD</span>
+<span class="cm"># CF_UPLOAD_URL (URL ของ Cloud Function)</span>
+
+<span class="cm"># Slave ESP32</span>
+<span class="kw">cp</span> esp32/config_slave.example.h esp32/config_slave.h
+<span class="cm"># แก้ไขเหมือนกัน (ใช้ account แยกกัน)</span></pre>
+
+        <div style="font-size:10px; font-weight:700; margin:8px 0 5px; color:var(--text2);">5.3 Upload และ Monitor</div>
+        <pre><span class="cm"># เปิดไฟล์ใน Arduino IDE</span>
+esp32/Master_ESP32/Master_ESP32.ino
+esp32/Slave_ESP32/Slave_ESP32.ino
+
+<span class="cm"># Upload → ดู Serial Monitor ที่ 115200 baud</span></pre>
+        <div class="callout note" style="margin-top:6px;">
+          <strong>Firebase Auth สำหรับเครื่อง:</strong> สร้าง email แยกต่างหากสำหรับแต่ละบอร์ด โดย email ต้องขึ้นต้นด้วย <code>machine-</code> เช่น <code>machine-gloop01@gmail.com</code>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SECTION 6 — NO HARDWARE TEST -->
+  <div class="section">
+    <div class="section-title">
+      <div class="section-num">6</div>
+      ⚡ ทดสอบระบบโดยไม่มี ESP32 Hardware (Simulation Mode)
+    </div>
+    <div class="callout tip">
+      <strong>สามารถทดสอบ Web App + AI ได้ครบวงจรโดยไม่ต้องมีบอร์ด ESP32</strong> — ใช้วิธีต่อไปนี้จำลองการทำงานของเครื่อง
+    </div>
+
+    <div style="margin-top:10px; font-size:10px; font-weight:700; color:var(--text2); margin-bottom:6px;">วิธีที่ 1 — แก้ Firestore ด้วยมือ (Firebase Console)</div>
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-body">เปิด <strong>Firebase Console → Firestore → machines → Gloop_01</strong></div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-body">สมัครสมาชิก/Login บน Web App (<code>localhost:3000/login</code>) → กด <strong>เริ่มใช้เครื่อง</strong> → <code>status</code> จะเปลี่ยนเป็น <code>READY</code></div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-body">ใน Firestore Console แก้ field <code>status</code> เป็น <code>PROCESSING</code> และ <code>session_score</code> เพิ่มขึ้น → Web App จะแสดงผลทันที (real-time listener)</div>
+      </div>
+    </div>
+
+    <div style="margin-top:10px; font-size:10px; font-weight:700; color:var(--text2); margin-bottom:6px;">วิธีที่ 2 — ทดสอบ AI โดยอัปโหลดภาพผ่าน curl / Python</div>
+    <pre><span class="cm"># ตรวจสอบว่า AI service รันอยู่ (python api.py)</span>
+<span class="cm"># ดูสถานะ service</span>
+<span class="kw">curl</span> http://localhost:8000/health
+<span class="kw">curl</span> http://localhost:8000/status
+
+<span class="cm"># จำลองขวดถูกตรวจ: เขียน status = "ready" ใน Firestore ด้วยมือ</span>
+<span class="cm"># แล้วใส่ label_storage_path ชี้ไปที่ภาพขวดใน Firebase Storage</span>
+<span class="cm"># AI listener จะดึงภาพมา inference และเขียนผลกลับอัตโนมัติ</span></pre>
+
+    <div style="margin-top:10px; font-size:10px; font-weight:700; color:var(--text2); margin-bottom:6px;">วิธีที่ 3 — ใช้ Firebase Emulator (Local ทั้งหมด ไม่ต้อง Internet)</div>
+    <pre><span class="cm"># ติดตั้ง emulator suite</span>
+<span class="kw">firebase</span> emulators:start --only firestore,auth,storage,functions
+
+<span class="cm"># เปลี่ยน web/.env.local ให้ชี้ emulator</span>
+<span class="va">NEXT_PUBLIC_USE_EMULATOR</span>=<span class="st">true</span>   <span class="cm"># (ถ้า app รองรับ)</span>
+
+<span class="cm"># รัน web app ตามปกติ — จะเชื่อมกับ emulator แทน Firebase จริง</span></pre>
+  </div>
+
+  <!-- SECTION 7 — FLOW SUMMARY -->
+  <div class="section">
+    <div class="section-title">
+      <div class="section-num">7</div>
+      ลำดับการทดสอบที่แนะนำ (End-to-End)
+    </div>
+    <div class="flow-row" style="flex-wrap:wrap; gap:4px;">
+      <div class="flow-box" style="background:var(--green-light); border-color:#6ee7b7; color:var(--green);">① Clone repo<br><code style="font-size:7.5px;">git clone</code></div>
+      <div class="flow-arr">→</div>
+      <div class="flow-box" style="background:var(--blue-light); border-color:#93c5fd; color:var(--blue);">② Firebase<br>Config</div>
+      <div class="flow-arr">→</div>
+      <div class="flow-box" style="background:var(--blue-light); border-color:#93c5fd; color:var(--blue);">③ Web App<br><code style="font-size:7.5px;">npm run dev</code></div>
+      <div class="flow-arr">→</div>
+      <div class="flow-box" style="background:var(--purple-light); border-color:#c4b5fd; color:var(--purple);">④ AI Service<br><code style="font-size:7.5px;">python api.py</code></div>
+      <div class="flow-arr">→</div>
+      <div class="flow-box" style="background:var(--amber-light); border-color:#fcd34d; color:var(--amber);">⑤ Login บน<br>Web App</div>
+      <div class="flow-arr">→</div>
+      <div class="flow-box" style="background:var(--bg3); border-color:var(--border); color:var(--text2);">⑥ แก้ Firestore<br>จำลองขวด</div>
+      <div class="flow-arr">→</div>
+      <div class="flow-box" style="background:var(--green-light); border-color:#6ee7b7; color:var(--green);">⑦ ดูผล AI<br>+ คะแนน Web</div>
+    </div>
+
+    <table style="margin-top:10px;">
+      <thead>
+        <tr><th>Component</th><th>คำสั่งรัน</th><th>ทดสอบที่</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><strong>Web App</strong></td><td><code>cd web &amp;&amp; npm run dev</code></td><td>http://localhost:3000</td></tr>
+        <tr><td><strong>AI Service</strong></td><td><code>cd ai_server &amp;&amp; python api.py</code></td><td>http://localhost:8000/health</td></tr>
+        <tr><td><strong>Cloud Functions</strong></td><td><code>firebase deploy --only functions</code></td><td>Firebase Console → Functions</td></tr>
+        <tr><td><strong>ESP32 Master</strong></td><td>Arduino IDE → Upload <code>Master_ESP32.ino</code></td><td>Serial Monitor 115200</td></tr>
+        <tr><td><strong>ESP32 Slave</strong></td><td>Arduino IDE → Upload <code>Slave_ESP32.ino</code></td><td>Serial Monitor 115200</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="callout note" style="margin-top:6px; font-size:9px;">
+    <strong>Firebase Project ID:</strong> <code>glooprvm</code> &nbsp;|&nbsp;
+    <strong>GitHub:</strong> <code>https://github.com/peettanavit/glooprvm</code> &nbsp;|&nbsp;
+    YOLO models (<code>label_model.pt</code>, <code>cap_model.pt</code>) อยู่ใน <code>ai_server/models/</code> — ขนาดใหญ่ ติดตาม Git LFS
+  </div>
+
+  <div class="page-footer">
+    <span>Gloop RVM — คู่มือการพัฒนาโปรแกรม</span>
+    <span>github.com/peettanavit/glooprvm</span>
+    <span>หน้า 3 / 3</span>
+  </div>
+</div>
+
+</body>
+</html>

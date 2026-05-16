@@ -38,3 +38,10 @@ esp32/config_slave.h
 # Firebase local cache/artifacts
 .firebase/
 
+# Root-level node_modules (puppeteer export scripts)
+node_modules/
+package-lock.json
+
+# ESP32 build artifacts
+esp32/*/build/
+

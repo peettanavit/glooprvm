@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Gloop — สแกน QR รับคะแนน</title>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: "Noto Sans Thai", sans-serif;
+      background: #e8f5e9;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      padding: 24px;
+    }
+
+    /* ── Banner card ── */
+    .banner {
+      position: relative;
+      width: 480px;
+      background: linear-gradient(145deg, #2d9e5f 0%, #1a7a40 55%, #155f32 100%);
+      border-radius: 28px;
+      overflow: hidden;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.25);
+      padding: 36px 36px 32px;
+      color: #fff;
+    }
+
+    /* decorative circles */
+    .banner::before {
+      content: "";
+      position: absolute;
+      top: -80px; right: -80px;
+      width: 280px; height: 280px;
+      background: rgba(255,255,255,0.07);
+      border-radius: 50%;
+    }
+    .banner::after {
+      content: "";
+      position: absolute;
+      bottom: -100px; left: -60px;
+      width: 320px; height: 320px;
+      background: rgba(255,255,255,0.05);
+      border-radius: 50%;
+    }
+
+    /* ── Header row ── */
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 20px;
+      position: relative; z-index: 1;
+    }
+
+    .logo-img {
+      width: 64px; height: 64px;
+      border-radius: 16px;
+      background: #fff;
+      padding: 6px;
+      object-fit: contain;
+      flex-shrink: 0;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }
+
+    .brand-text {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .brand-name {
+      font-size: 30px;
+      font-weight: 900;
+      color: #fff;
+      line-height: 1;
+      letter-spacing: -0.5px;
+    }
+
+    .brand-sub {
+      font-size: 12px;
+      color: rgba(255,255,255,0.75);
+      margin-top: 3px;
+      font-weight: 400;
+    }
+
+    /* ── Hashtag headline ── */
+    .headline {
+      font-size: 22px;
+      font-weight: 800;
+      color: #fff;
+      line-height: 1.35;
+      margin-bottom: 20px;
+      position: relative; z-index: 1;
+    }
+
+    .headline .highlight {
+      color: #a8f0c0;
+    }
+
+    /* ── Body row: QR center, info below ── */
+    .body-row {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 20px;
+      position: relative; z-index: 1;
+    }
+
+    /* QR box */
+    .qr-wrap {
+      background: #fff;
+      border-radius: 24px;
+      padding: 18px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.25);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      width: fit-content;
+    }
+
+    #qrcode canvas,
+    #qrcode img {
+      border-radius: 8px;
+      display: block;
+    }
+
+    .qr-label {
+      font-size: 12px;
+      font-weight: 700;
+      color: #16a34a;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+    }
+
+    /* Info below QR */
+    .info {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      text-align: center;
+    }
+
+    .scan-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      background: rgba(255,255,255,0.18);
+      border: 1.5px solid rgba(255,255,255,0.35);
+      border-radius: 40px;
+      padding: 7px 18px;
+      font-size: 14px;
+      font-weight: 700;
+      color: #fff;
+      width: fit-content;
+    }
+
+    .scan-badge .dot {
+      width: 8px; height: 8px;
+      background: #a8f0c0;
+      border-radius: 50%;
+      animation: pulse 1.5s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50%       { opacity: 0.5; transform: scale(1.4); }
+    }
+
+    .info-title {
+      font-size: 20px;
+      font-weight: 800;
+      color: #fff;
+      line-height: 1.4;
+    }
+
+    .info-desc {
+      font-size: 14px;
+      color: rgba(255,255,255,0.8);
+      line-height: 1.7;
+      font-weight: 400;
+    }
+
+    .url-pill {
+      display: inline-block;
+      background: #fff;
+      color: #16a34a;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 5px 14px;
+      border-radius: 20px;
+      letter-spacing: 0.3px;
+      width: fit-content;
+    }
+
+    /* ── Footer ── */
+    .footer {
+      margin-top: 20px;
+      padding-top: 16px;
+      border-top: 1px solid rgba(255,255,255,0.2);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      position: relative; z-index: 1;
+    }
+
+    .machine-badge {
+      font-size: 11px;
+      font-weight: 600;
+      color: rgba(255,255,255,0.6);
+      letter-spacing: 0.5px;
+    }
+
+    .free-badge {
+      background: #a8f0c0;
+      color: #155f32;
+      font-size: 12px;
+      font-weight: 800;
+      padding: 5px 16px;
+      border-radius: 20px;
+      letter-spacing: 0.3px;
+    }
+
+    @media print {
+      body { background: white; padding: 0; min-height: unset; }
+      .banner { box-shadow: none; margin: 0 auto; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="banner">
+
+  <!-- Header: logo + brand name -->
+  <div class="header">
+    <img class="logo-img" src="bottlesImage/logoGLOOP/image.png" alt="Gloop" />
+    <div class="brand-text">
+      <div class="brand-name">Gloop</div>
+      <div class="brand-sub">เครื่องรับคืนขวดอัจฉริยะ</div>
+    </div>
+  </div>
+
+  <!-- Headline -->
+  <div class="headline">
+    #ฮาวทูสะสมแต้ม<br>
+    <span class="highlight">แค่สแกนก็ได้แล้ว ฟรี!</span>
+  </div>
+
+  <!-- Body row -->
+  <div class="body-row">
+
+    <!-- QR code -->
+    <div class="qr-wrap">
+      <div id="qrcode"></div>
+      <div class="qr-label">สแกน QR</div>
+    </div>
+
+    <!-- Info -->
+    <div class="info">
+      <div class="scan-badge">
+        <span class="dot"></span>
+        สแกน QR CODE
+      </div>
+
+      <div class="info-title">ใส่ขวด<br>รับคะแนนทันที</div>
+
+      <div class="info-desc">
+        ส่งขวดพลาสติก สะสมคะแนน<br>
+        แลกของรางวัลได้เลย
+      </div>
+
+      <div class="url-pill">@gloop.th</div>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <div class="footer">
+    <div class="machine-badge">Gloop_01 · glooprvm.web.app</div>
+    <div class="free-badge">เร็วๆ นี้ →</div>
+  </div>
+
+</div>
+
+<script>
+  new QRCode(document.getElementById("qrcode"), {
+    text: "https://glooprvm.web.app",
+    width: 260,
+    height: 260,
+    colorDark:  "#155f32",
+    colorLight: "#ffffff",
+    correctLevel: QRCode.CorrectLevel.H,
+  });
+</script>
+</body>
+</html>

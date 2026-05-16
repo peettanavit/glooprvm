@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;600;700;800&display=swap');
+  * { margin:0; padding:0; box-sizing:border-box; }
+  @page { size: A4 portrait; margin: 0; }
+  body { font-family:'Sarabun',sans-serif; background:#fff; }
+
+  .page {
+    width: 210mm;
+    height: 297mm;
+    background: #fff;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* ── HEADER ── */
+  .header {
+    background: #15803d;
+    padding: 5mm 8mm 4mm;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+  }
+  .header img.logo { height: 14mm; object-fit: contain; border-radius: 2mm; }
+  .header-right { text-align: right; }
+  .header-right h1 { color:#fff; font-size:6mm; font-weight:800; line-height:1; }
+  .header-right p  { color:rgba(255,255,255,0.8); font-size:3mm; margin-top:1mm; }
+
+  /* ── STEPS WRAPPER ── */
+  .steps {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    padding: 4mm 8mm;
+    gap: 2.5mm;
+  }
+
+  /* ── STEP ROW (1 & 3) — compact ── */
+  .step-row {
+    display: flex;
+    align-items: center;
+    gap: 4mm;
+    background: #f9fafb;
+    border: 0.4mm solid #e5e7eb;
+    border-radius: 3.5mm;
+    padding: 3.5mm 4mm;
+    flex-shrink: 0;
+  }
+  .step-num {
+    width: 9mm; height: 9mm; border-radius: 50%;
+    background: #15803d; color: #fff;
+    font-size: 5mm; font-weight: 800;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+    box-shadow: 0 1mm 3mm rgba(21,128,61,0.3);
+  }
+  .step-icon { font-size: 9mm; flex-shrink: 0; }
+  .step-txt h3 { font-size: 4.8mm; font-weight: 800; color: #111; line-height: 1.1; }
+  .step-txt p  { font-size: 3mm; color: #6b7280; margin-top: 1mm; line-height: 1.4; }
+
+  /* ── ARROW ── */
+  .arrow {
+    display: flex; justify-content: center; align-items: center;
+    gap: 1mm; flex-shrink: 0;
+  }
+  .arrow-dot { width:1.5mm; height:1.5mm; border-radius:50%; background:#22c55e; }
+  .arrow-tri {
+    width:0; height:0;
+    border-left: 2.5mm solid transparent;
+    border-right: 2.5mm solid transparent;
+    border-top: 3.5mm solid #22c55e;
+  }
+
+  /* ── STEP 2 — big bottle annotation ── */
+  .step-big {
+    flex: 1;
+    background: #f0fdf4;
+    border: 0.5mm solid #86efac;
+    border-radius: 3.5mm;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    min-height: 0;
+  }
+  .step-big-header {
+    display: flex;
+    align-items: center;
+    gap: 3mm;
+    padding: 3mm 4mm 2mm;
+    flex-shrink: 0;
+  }
+  .step-big-header .step-num { background: #15803d; }
+  .step-big-header h3 { font-size: 5mm; font-weight: 800; color: #14532d; }
+  .step-big-header p  { font-size: 3mm; color: #16a34a; margin-top: 0.5mm; }
+
+  /* ── annotation area — 3-col ── */
+  .annotation-area {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 3mm;
+    min-height: 0;
+    padding: 2mm 4mm 3mm;
+  }
+  .anno-col {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 3mm;
+    flex: 1;
+  }
+  .bottle-img {
+    height: 100%;
+    max-height: 72mm;
+    width: auto;
+    object-fit: contain;
+    border-radius: 3mm;
+    flex-shrink: 0;
+  }
+  .callout-bubble {
+    background: #fff;
+    border: 0.5mm solid #15803d;
+    border-radius: 2.5mm;
+    padding: 2mm 3mm;
+    font-size: 3mm;
+    font-weight: 700;
+    color: #14532d;
+    line-height: 1.3;
+    box-shadow: 0 1mm 3mm rgba(21,128,61,0.12);
+    width: 100%;
+  }
+  .callout-bubble.warn {
+    border-color: #ef4444;
+    color: #dc2626;
+  }
+  .callout-bubble small {
+    display: block;
+    font-size: 2.5mm;
+    font-weight: 400;
+    color: #6b7280;
+    margin-top: 0.5mm;
+  }
+
+  /* ── RESULT ROW ── */
+  .result-row {
+    display: flex;
+    gap: 2.5mm;
+    flex-shrink: 0;
+  }
+  .result-card {
+    flex: 1;
+    border-radius: 3mm;
+    padding: 2.5mm 3.5mm;
+    display: flex;
+    align-items: center;
+    gap: 2mm;
+  }
+  .result-card.pass { background:#dcfce7; border:0.4mm solid #86efac; }
+  .result-card.fail { background:#fef2f2; border:0.4mm solid #fca5a5; }
+  .result-emoji { font-size: 5.5mm; }
+  .result-title { font-size: 3.8mm; font-weight: 800; line-height: 1.2; }
+  .pass .result-title { color:#15803d; }
+  .fail .result-title { color:#dc2626; }
+  .result-sub { font-size: 2.8mm; color:#6b7280; }
+
+  /* ── BOTTOM: QR + footer ── */
+  .bottom {
+    display: flex;
+    align-items: center;
+    gap: 5mm;
+    padding: 3mm 8mm 3mm;
+    border-top: 0.4mm solid #e5e7eb;
+    flex-shrink: 0;
+  }
+  .bottom img.qr { height: 22mm; width: 22mm; object-fit: contain; border-radius: 2mm; flex-shrink:0; }
+  .bottom-text h3 { font-size: 4mm; font-weight: 800; color: #15803d; }
+  .bottom-text p  { font-size: 2.8mm; color: #6b7280; margin-top: 1mm; line-height:1.5; }
+  .url-badge {
+    display: inline-block; margin-top: 1.5mm;
+    font-size: 2.8mm; font-weight: 700; color: #15803d;
+    background: #f0fdf4; border: 0.4mm solid #86efac;
+    border-radius: 1.5mm; padding: 0.8mm 2mm;
+  }
+
+  /* accepted bottles beside QR */
+  .mini-bottles { display:flex; gap:2mm; align-items:flex-end; }
+  .mini-b { display:flex; flex-direction:column; align-items:center; gap:1mm; }
+  .mini-b img { height:16mm; width:12mm; object-fit:cover; border-radius:2mm; border:0.4mm solid #86efac; }
+  .mini-b span { font-size:2.3mm; font-weight:700; color:#15803d; }
+
+  .footer {
+    background: #15803d;
+    padding: 2mm 8mm;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-shrink: 0;
+  }
+  .footer span { color:rgba(255,255,255,0.8); font-size:2.6mm; }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- HEADER -->
+  <div class="header">
+    <img class="logo" src="bottlesImage/logoGLOOP/image.png" alt="Gloop">
+    <div class="header-right">
+      <h1>วิธีใช้งาน</h1>
+      <p>เครื่องรับคืนขวดอัตโนมัติ Gloop</p>
+    </div>
+  </div>
+
+  <div class="steps">
+
+    <!-- STEP 1 -->
+    <div class="step-row">
+      <div class="step-num">1</div>
+      <img src="gloop_qrcode.png" style="height:28mm;width:auto;object-fit:contain;border-radius:2mm;flex-shrink:0;">
+      <div class="step-txt">
+        <h3>สแกน QR · เข้าสู่ระบบ</h3>
+        <p>สแกน QR ด้านซ้าย หรือไปที่ glooprvm.web.app แล้วล็อกอิน</p>
+      </div>
+    </div>
+
+    <div class="arrow">
+      <div class="arrow-dot"></div><div class="arrow-dot"></div>
+      <div class="arrow-dot"></div><div class="arrow-tri"></div>
+    </div>
+
+    <!-- STEP 2 — big annotated bottle -->
+    <div class="step-big">
+      <div class="step-big-header">
+        <div class="step-num">2</div>
+        <div>
+          <h3>วางขวดในช่อง · กดถ่ายภาพ</h3>
+          <p>ตรวจสอบขวดก่อนวาง ให้ครบเงื่อนไขด้านล่าง</p>
+        </div>
+      </div>
+
+      <div class="annotation-area">
+
+        <!-- LEFT: ✅ ต้องมี -->
+        <div class="anno-col">
+          <div class="callout-bubble">✅ ฝาขวดครบ<small>ไม่บุบ ไม่หัก</small></div>
+          <div class="callout-bubble">✅ มีฉลาก<small>ชัดเจน ไม่ขาด</small></div>
+          <div class="callout-bubble">✅ ขวดสมบูรณ์<small>ไม่แตก ไม่บิ่น</small></div>
+        </div>
+
+        <!-- CENTER: bottle -->
+        <img class="bottle-img" src="bottlesImage/m150.jpg" alt="bottle">
+
+        <!-- RIGHT: ❌ ห้าม / ☑️ ต้องทำ -->
+        <div class="anno-col">
+          <div class="callout-bubble warn">❌ ห้ามฝาบุบ<small>ระบบตรวจไม่พบ</small></div>
+          <div class="callout-bubble warn">❌ ห้ามฉลากขาด<small>AI อ่านไม่ได้</small></div>
+          <div class="callout-bubble">☑️ ฉลากหันออก<small>ให้กล้องมองเห็นชัด</small></div>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="arrow">
+      <div class="arrow-dot"></div><div class="arrow-dot"></div>
+      <div class="arrow-dot"></div><div class="arrow-tri"></div>
+    </div>
+
+    <!-- STEP 3 -->
+    <div class="step-row">
+      <div class="step-num">3</div>
+      <div class="step-icon">⏳</div>
+      <div class="step-txt">
+        <h3>กดถ่ายภาพในแอป · รอผล 3–5 วินาที</h3>
+        <p>อย่าเคลื่อนย้ายขวดขณะรอ ระบบจะแจ้งผลให้อัตโนมัติ</p>
+      </div>
+    </div>
+
+    <!-- Results -->
+    <div class="result-row">
+      <div class="result-card pass">
+        <div class="result-emoji">✅</div>
+        <div>
+          <div class="result-title">ผ่าน! ขวดตกช่อง</div>
+          <div class="result-sub">รับคะแนนสะสมทันที</div>
+        </div>
+      </div>
+      <div class="result-card fail">
+        <div class="result-emoji">❌</div>
+        <div>
+          <div class="result-title">ไม่ผ่าน</div>
+          <div class="result-sub">นำขวดออก ตรวจสอบแล้ววางใหม่</div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /steps -->
+
+  <!-- BOTTOM: QR + bottles -->
+  <div class="bottom">
+    <img class="qr" src="gloop_qrcode.png" alt="QR">
+    <div class="bottom-text">
+      <h3>สแกนเพื่อเริ่มใช้งาน</h3>
+      <p>สะสมคะแนน · แลกรางวัล · ดูประวัติ</p>
+      <div class="url-badge">glooprvm.web.app</div>
+    </div>
+    <div style="flex:1"></div>
+    <div class="mini-bottles">
+      <div class="mini-b"><img src="bottlesImage/Lipo.png"><span>Lipo</span></div>
+      <div class="mini-b"><img src="bottlesImage/c-vitt.jpg"><span>C-Vitt</span></div>
+      <div class="mini-b"><img src="bottlesImage/m150.jpg"><span>M-150</span></div>
+    </div>
+  </div>
+
+  <div class="footer">
+    <span>CE482 Project II (PRAC) · Advisor: อ.ณัฐปคัลภ์ ลิไชยกุล</span>
+    <span>Gloop_01</span>
+  </div>
+
+</div>
+</body>
+</html>

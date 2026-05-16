@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gloop RVM — System Overview</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    width: 1122px;
+    height: 824px;
+    background: #0d1117;
+    font-family: 'IBM Plex Sans Thai', sans-serif;
+    overflow: hidden;
+    position: relative;
+  }
+
+  /* ── BACKGROUND GRID ── */
+  body::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(255,255,255,.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+  }
+
+  /* ── TITLE ── */
+  .title-row {
+    position: absolute;
+    top: 22px; left: 40px; right: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .logo {
+    display: flex; align-items: center; gap: 10px;
+  }
+  .logo-icon {
+    width: 36px; height: 36px;
+    background: linear-gradient(135deg, #4ade80, #22d3ee);
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 20px;
+  }
+  .logo-text {
+    font-size: 22px; font-weight: 700;
+    color: #f0fdf4;
+    letter-spacing: -0.5px;
+  }
+  .logo-sub {
+    font-size: 11px; color: #6b7280; font-weight: 400;
+    letter-spacing: 1px; text-transform: uppercase;
+    margin-top: 1px;
+  }
+  .headline {
+    font-size: 13px; color: #9ca3af;
+    text-align: right;
+    line-height: 1.6;
+  }
+  .headline strong { color: #e5e7eb; font-weight: 600; }
+
+  /* ── DIVIDER ── */
+  .divider {
+    position: absolute;
+    top: 76px; left: 40px; right: 40px;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, #374151 20%, #374151 80%, transparent);
+  }
+
+  /* ── MAIN CANVAS ── */
+  .canvas {
+    position: absolute;
+    top: 90px; left: 32px; right: 32px; bottom: 20px;
+  }
+
+  /* ── LANE LABELS (left side) ── */
+  .lane-label {
+    position: absolute;
+    left: 0;
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    writing-mode: horizontal-tb;
+    color: #6b7280;
+  }
+
+  /* ── BOX BASE ── */
+  .box {
+    position: absolute;
+    border-radius: 12px;
+    border: 1px solid;
+    padding: 10px 12px 9px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+  .box-icon {
+    font-size: 22px;
+    line-height: 1;
+    margin-bottom: 2px;
+  }
+  .box-title {
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1.2;
+  }
+  .box-sub {
+    font-size: 10px;
+    font-weight: 400;
+    line-height: 1.4;
+    opacity: 0.75;
+  }
+  .box-tag {
+    display: inline-block;
+    font-size: 8.5px;
+    font-weight: 600;
+    letter-spacing: 0.8px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    margin-top: 3px;
+    text-transform: uppercase;
+    width: fit-content;
+  }
+
+  /* ── COLOR THEMES ── */
+  /* User / Web */
+  .theme-green {
+    background: rgba(16,185,129,.08);
+    border-color: rgba(52,211,153,.25);
+  }
+  .theme-green .box-title { color: #34d399; }
+  .theme-green .box-sub { color: #a7f3d0; }
+  .theme-green .box-tag { background: rgba(52,211,153,.15); color: #34d399; }
+
+  /* Hardware ESP32 */
+  .theme-amber {
+    background: rgba(245,158,11,.08);
+    border-color: rgba(251,191,36,.25);
+  }
+  .theme-amber .box-title { color: #fbbf24; }
+  .theme-amber .box-sub { color: #fde68a; }
+  .theme-amber .box-tag { background: rgba(251,191,36,.15); color: #fbbf24; }
+
+  /* Cloud / Firebase */
+  .theme-blue {
+    background: rgba(59,130,246,.08);
+    border-color: rgba(96,165,250,.25);
+  }
+  .theme-blue .box-title { color: #60a5fa; }
+  .theme-blue .box-sub { color: #bfdbfe; }
+  .theme-blue .box-tag { background: rgba(96,165,250,.15); color: #60a5fa; }
+
+  /* AI / Python */
+  .theme-purple {
+    background: rgba(139,92,246,.08);
+    border-color: rgba(167,139,250,.25);
+  }
+  .theme-purple .box-title { color: #a78bfa; }
+  .theme-purple .box-sub { color: #ddd6fe; }
+  .theme-purple .box-tag { background: rgba(167,139,250,.15); color: #a78bfa; }
+
+  /* Accept */
+  .theme-teal {
+    background: rgba(20,184,166,.08);
+    border-color: rgba(45,212,191,.25);
+  }
+  .theme-teal .box-title { color: #2dd4bf; }
+  .theme-teal .box-sub { color: #99f6e4; }
+  .theme-teal .box-tag { background: rgba(45,212,191,.15); color: #2dd4bf; }
+
+  /* Reject */
+  .theme-red {
+    background: rgba(239,68,68,.08);
+    border-color: rgba(252,165,165,.25);
+  }
+  .theme-red .box-title { color: #f87171; }
+  .theme-red .box-sub { color: #fecaca; }
+  .theme-red .box-tag { background: rgba(252,165,165,.15); color: #f87171; }
+
+  /* Firestore center */
+  .theme-indigo {
+    background: rgba(99,102,241,.1);
+    border-color: rgba(129,140,248,.35);
+  }
+  .theme-indigo .box-title { color: #818cf8; }
+  .theme-indigo .box-sub { color: #c7d2fe; }
+  .theme-indigo .box-tag { background: rgba(129,140,248,.15); color: #818cf8; }
+
+  /* ── STEP BADGE ── */
+  .step-badge {
+    position: absolute;
+    width: 20px; height: 20px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10px; font-weight: 700;
+    z-index: 10;
+  }
+
+  /* ── STATUS PILL ── */
+  .status-pill {
+    position: absolute;
+    border-radius: 999px;
+    padding: 3px 8px;
+    font-size: 9px; font-weight: 600;
+    letter-spacing: 0.5px;
+    font-family: 'IBM Plex Mono', monospace;
+    border: 1px solid;
+    white-space: nowrap;
+  }
+
+  /* ── LEGEND ── */
+  .legend {
+    position: absolute;
+    bottom: 0; right: 0;
+    display: flex; gap: 14px;
+    align-items: center;
+  }
+  .legend-item {
+    display: flex; align-items: center; gap: 5px;
+    font-size: 9px; color: #6b7280;
+  }
+  .legend-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+  }
+
+  /* ── SVG ARROWS ── */
+  svg.arrows {
+    position: absolute;
+    inset: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+    overflow: visible;
+  }
+
+  /* ── SECTION BACKGROUNDS ── */
+  .section-bg {
+    position: absolute;
+    border-radius: 16px;
+    border: 1px dashed;
+  }
+
+</style>
+</head>
+<body>
+
+<!-- TITLE ROW -->
+<div class="title-row">
+  <div class="logo">
+    <div class="logo-icon">♻️</div>
+    <div>
+      <div class="logo-text">Gloop RVM</div>
+      <div class="logo-sub">Smart Reverse Vending Machine</div>
+    </div>
+  </div>
+  <div class="headline">
+    <strong>ภาพรวมการทำงานของระบบ (System Architecture Overview)</strong><br>
+    ตรวจจับ → ถ่ายภาพ → AI วิเคราะห์ → เปิดช่องรับขวด → สะสมคะแนน
+  </div>
+</div>
+
+<div class="divider"></div>
+
+<!-- MAIN CANVAS -->
+<div class="canvas" style="position:absolute; top:90px; left:32px; right:32px; bottom:16px;">
+
+  <!-- ════════════════════════════════════════
+       SVG ARROWS
+  ════════════════════════════════════════ -->
+  <svg class="arrows" viewBox="0 0 1058 718" preserveAspectRatio="none">
+    <defs>
+      <marker id="ah-green" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+        <path d="M0,0 L0,6 L8,3 z" fill="#34d399"/>
+      </marker>
+      <marker id="ah-amber" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+        <path d="M0,0 L0,6 L8,3 z" fill="#fbbf24"/>
+      </marker>
+      <marker id="ah-blue" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+        <path d="M0,0 L0,6 L8,3 z" fill="#60a5fa"/>
+      </marker>
+      <marker id="ah-purple" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+        <path d="M0,0 L0,6 L8,3 z" fill="#a78bfa"/>
+      </marker>
+      <marker id="ah-teal" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+        <path d="M0,0 L0,6 L8,3 z" fill="#2dd4bf"/>
+      </marker>
+      <marker id="ah-red" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+        <path d="M0,0 L0,6 L8,3 z" fill="#f87171"/>
+      </marker>
+      <marker id="ah-indigo" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+        <path d="M0,0 L0,6 L8,3 z" fill="#818cf8"/>
+      </marker>
+      <marker id="ah-gray" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+        <path d="M0,0 L0,6 L8,3 z" fill="#9ca3af"/>
+      </marker>
+    </defs>
+
+    <!-- ① User → Web App (login, QR) -->
+    <path d="M 102,90 L 192,90" stroke="#34d399" stroke-width="1.8" fill="none" stroke-dasharray="5,3" marker-end="url(#ah-green)"/>
+
+    <!-- Web App → User (realtime score update, above login arrow) -->
+    <path d="M 192,52 L 102,52" stroke="#34d399" stroke-width="1.6" fill="none" stroke-dasharray="4,3" marker-end="url(#ah-green)"/>
+
+    <!-- ② Bottle insert → Master ESP32 (User bottom → Master top at x=100) -->
+    <path d="M 100,138 L 100,226" stroke="#fbbf24" stroke-width="1.8" fill="none" stroke-dasharray="5,3" marker-end="url(#ah-amber)"/>
+
+    <!-- ③ Master ESP32 → Cloud Function (POST label image) -->
+    <path d="M 308,296 L 394,296" stroke="#60a5fa" stroke-width="2" fill="none" marker-end="url(#ah-blue)"/>
+
+    <!-- ④ Cloud Function → Firebase (set status=ready) -->
+    <path d="M 570,312 L 655,312" stroke="#818cf8" stroke-width="2" fill="none" marker-end="url(#ah-indigo)"/>
+
+    <!-- Firebase → Master (poll result, above Cloud Function top y=248, dashed amber) -->
+    <path d="M 655,238 L 308,238" stroke="#fbbf24" stroke-width="1.5" fill="none" stroke-dasharray="4,3" marker-end="url(#ah-amber)"/>
+
+    <!-- Master → Solenoid (open after status check, exits Master left at centerY=296) -->
+    <path d="M 90,296 L 48,296 L 48,376" stroke="#fbbf24" stroke-width="1.5" fill="none" stroke-dasharray="4,3" marker-end="url(#ah-amber)"/>
+
+    <!-- ⑤ Firebase → Slave (status=ready, route below Cloud Function bottom y=376, dashed amber) -->
+    <path d="M 655,385 L 370,385 L 370,405 L 308,405 L 308,420" stroke="#fbbf24" stroke-width="1.8" fill="none" stroke-dasharray="4,3" marker-end="url(#ah-amber)"/>
+
+    <!-- ⑤b Slave → Firebase (upload cap image, route right of Cloud Function, y=390 below CF bottom, dashed blue) -->
+    <path d="M 308,460 L 390,460 L 390,390 L 655,390" stroke="#60a5fa" stroke-width="1.5" fill="none" stroke-dasharray="3,3" marker-end="url(#ah-blue)"/>
+
+    <!-- ⑥ Firebase → Python AI listener (Firebase bottom y=410, solid purple) -->
+    <path d="M 735,410 L 735,468" stroke="#a78bfa" stroke-width="2" fill="none" marker-end="url(#ah-purple)"/>
+
+    <!-- ⑦a Python AI → Accepted (AI bottom y=608, Accepted top y=618) -->
+    <path d="M 719,608 L 745,608 L 745,618" stroke="#2dd4bf" stroke-width="2" fill="none" marker-end="url(#ah-teal)"/>
+
+    <!-- ⑦b Python AI → Rejected (exit AI right, Rejected top y=618) -->
+    <path d="M 850,538 L 903,538 L 903,618" stroke="#f87171" stroke-width="2" fill="none" marker-end="url(#ah-red)"/>
+
+    <!-- Firebase → Web App (exits Firebase top, routes above hardware layer, enters Web App right at centerY=99) -->
+    <path d="M 735,230 L 735,200 L 314,200 L 314,99" stroke="#34d399" stroke-width="1.8" fill="none" stroke-dasharray="4,3" marker-end="url(#ah-green)"/>
+
+  </svg>
+
+  <!-- ════════════════════════════════════════
+       SECTION BACKGROUNDS
+  ════════════════════════════════════════ -->
+
+  <!-- Hardware zone -->
+  <div class="section-bg" style="
+    left:2px; top:200px; width:340px; height:358px;
+    border-color:rgba(251,191,36,.18);
+    background:rgba(251,191,36,.03);
+  "></div>
+  <div style="position:absolute; left:12px; top:196px; font-size:8.5px; font-weight:700; color:rgba(251,191,36,.5); letter-spacing:1.2px; text-transform:uppercase;">Hardware Layer</div>
+
+  <!-- Cloud zone -->
+  <div class="section-bg" style="
+    left:390px; top:240px; width:330px; height:148px;
+    border-color:rgba(96,165,250,.18);
+    background:rgba(96,165,246,.03);
+  "></div>
+  <div style="position:absolute; left:400px; top:236px; font-size:8.5px; font-weight:700; color:rgba(96,165,250,.5); letter-spacing:1.2px; text-transform:uppercase;">Cloud Layer</div>
+
+  <!-- Firestore center -->
+  <!-- AI zone -->
+  <div class="section-bg" style="
+    left:580px; top:460px; width:280px; height:156px;
+    border-color:rgba(167,139,250,.18);
+    background:rgba(139,92,246,.03);
+  "></div>
+  <div style="position:absolute; left:590px; top:456px; font-size:8.5px; font-weight:700; color:rgba(167,139,250,.5); letter-spacing:1.2px; text-transform:uppercase;">AI Layer</div>
+
+
+  <!-- ════════════════════════════════════════
+       ROW 1 — USER & WEB APP
+  ════════════════════════════════════════ -->
+
+  <!-- User -->
+  <div class="box theme-green" style="left:10px; top:42px; width:92px; height:96px;">
+    <div class="box-icon">👤</div>
+    <div class="box-title">ผู้ใช้งาน</div>
+    <div class="box-sub">สแกน QR เพื่อเข้าสู่ระบบ</div>
+  </div>
+
+  <!-- Step 1 badge -->
+  <div class="step-badge" style="left:100px; top:64px; background:#34d399; color:#052e16;">1</div>
+  <div style="position:absolute; left:110px; top:56px; font-size:8.5px; color:#34d399; white-space:nowrap;">เข้าสู่ระบบ<br>QR Code</div>
+
+  <!-- Web App -->
+  <div class="box theme-green" style="left:192px; top:42px; width:122px; height:114px;">
+    <div class="box-icon">🌐</div>
+    <div class="box-title">Web App</div>
+    <div class="box-sub">Next.js · Firebase Auth<br>แสดงคะแนน real-time</div>
+    <div class="box-tag">React / Next.js 15</div>
+  </div>
+
+  <!-- Return arrow label -->
+  <div style="position:absolute; left:192px; top:30px; font-size:8px; color:#34d399; text-align:center; width:122px;">← อัปเดตคะแนน real-time</div>
+
+
+  <!-- ════════════════════════════════════════
+       ROW 2 — HARDWARE
+  ════════════════════════════════════════ -->
+
+  <!-- Bottle insert icon -->
+  <div style="position:absolute; left:16px; top:220px; font-size:28px; text-align:center; width:60px;">🍼</div>
+  <div style="position:absolute; left:10px; top:252px; font-size:8px; color:#d97706; text-align:center; width:72px; line-height:1.4;">ใส่ขวดพลาสติก<br>เข้าเครื่อง</div>
+
+  <!-- Step 2 badge -->
+  <div class="step-badge" style="left:56px; top:218px; background:#fbbf24; color:#1c1917;">2</div>
+
+  <!-- Master ESP32 -->
+  <div class="box theme-amber" style="left:90px; top:226px; width:218px; height:140px;">
+    <div class="box-icon">📷</div>
+    <div class="box-title">Master ESP32-S3</div>
+    <div class="box-sub">
+      ① Sensor ตรวจจับขวด<br>
+      ② กล้อง OV5640 ถ่ายภาพ label<br>
+      ③ POST ภาพ → Cloud Function<br>
+      ④ Poll Firestore → เปิด solenoid
+    </div>
+    <div class="box-tag">Firmware C++</div>
+  </div>
+
+  <!-- Step 3 badge -->
+  <div class="step-badge" style="left:310px; top:264px; background:#60a5fa; color:#172554;">3</div>
+  <div style="position:absolute; left:318px; top:256px; font-size:8px; color:#60a5fa; white-space:nowrap;">POST<br>ภาพ label</div>
+
+  <!-- Slave ESP32 -->
+  <div class="box theme-amber" style="left:90px; top:420px; width:218px; height:128px;">
+    <div class="box-icon">📸</div>
+    <div class="box-title">Slave ESP32-S3</div>
+    <div class="box-sub">
+      Poll status = "ready" ทุก 500ms<br>
+      ถ่ายภาพฝาขวด (top view)<br>
+      อัปโหลด cap image → Firestore
+    </div>
+    <div class="box-tag">Firmware C++</div>
+  </div>
+
+  <!-- Step 5 badge -->
+  <div class="step-badge" style="left:88px; top:426px; background:#fbbf24; color:#1c1917;">5</div>
+
+  <!-- Solenoid result -->
+  <div class="box theme-teal" style="left:10px; top:376px; width:76px; height:84px;">
+    <div class="box-icon" style="font-size:18px;">🔓</div>
+    <div class="box-title" style="font-size:10.5px;">Solenoid</div>
+    <div class="box-sub" style="font-size:9px;">เปิด 2.5s<br>ขวดตกลงถัง</div>
+  </div>
+
+
+  <!-- ════════════════════════════════════════
+       ROW 3 — CLOUD
+  ════════════════════════════════════════ -->
+
+  <!-- Cloud Function -->
+  <div class="box theme-blue" style="left:394px; top:248px; width:176px; height:128px;">
+    <div class="box-icon">⚡</div>
+    <div class="box-title">Cloud Function</div>
+    <div class="box-sub">
+      uploadBottleImage<br>
+      บันทึกภาพ → Storage<br>
+      ตั้ง status = "ready"
+    </div>
+    <div class="box-tag">Node.js 20</div>
+  </div>
+
+  <!-- Step 4 badge -->
+  <div class="step-badge" style="left:572px; top:264px; background:#818cf8; color:#1e1b4b;">4</div>
+  <div style="position:absolute; left:582px; top:256px; font-size:8px; color:#818cf8; white-space:nowrap;">set status<br>"ready"</div>
+
+  <!-- Firestore -->
+  <div class="box theme-indigo" style="left:655px; top:230px; width:160px; height:180px;">
+    <div class="box-icon">🔥</div>
+    <div class="box-title">Firebase</div>
+    <div class="box-sub">
+      Firestore (state machine)<br>
+      Storage (label + cap img)<br>
+      Auth · Realtime listeners
+    </div>
+    <div class="box-tag">Firebase SDK 11</div>
+    <!-- Status pills -->
+    <div style="display:flex; flex-wrap:wrap; gap:3px; margin-top:4px;">
+      <span style="font-size:7.5px; background:rgba(251,191,36,.15); color:#fbbf24; border:1px solid rgba(251,191,36,.3); border-radius:3px; padding:1px 5px; font-family:monospace;">IDLE</span>
+      <span style="font-size:7.5px; background:rgba(96,165,250,.15); color:#60a5fa; border:1px solid rgba(96,165,250,.3); border-radius:3px; padding:1px 5px; font-family:monospace;">ready</span>
+      <span style="font-size:7.5px; background:rgba(167,139,250,.15); color:#a78bfa; border:1px solid rgba(167,139,250,.3); border-radius:3px; padding:1px 5px; font-family:monospace;">processing_ai</span>
+      <span style="font-size:7.5px; background:rgba(45,212,191,.15); color:#2dd4bf; border:1px solid rgba(45,212,191,.3); border-radius:3px; padding:1px 5px; font-family:monospace;">PROCESSING</span>
+      <span style="font-size:7.5px; background:rgba(248,113,113,.15); color:#f87171; border:1px solid rgba(248,113,113,.3); border-radius:3px; padding:1px 5px; font-family:monospace;">REJECTED</span>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════
+       ROW 4 — AI
+  ════════════════════════════════════════ -->
+
+  <!-- Python AI -->
+  <div class="box theme-purple" style="left:588px; top:468px; width:262px; height:140px;">
+    <div class="box-icon">🤖</div>
+    <div class="box-title">Python AI Listener (YOLO)</div>
+    <div class="box-sub">
+      Claim transaction: ready → processing_ai<br>
+      ดาวน์โหลด label + cap image<br>
+      label_model.pt (primary) · cap_model.pt (validator)<br>
+      ตัดสิน: ยี่ห้อที่รับได้ / ปฏิเสธ
+    </div>
+    <div class="box-tag">Ultralytics · Python 3</div>
+  </div>
+
+  <!-- Step 6 badge -->
+  <div class="step-badge" style="left:586px; top:466px; background:#a78bfa; color:#2e1065;">6</div>
+
+
+  <!-- ════════════════════════════════════════
+       RESULT ROW
+  ════════════════════════════════════════ -->
+
+  <!-- ACCEPTED -->
+  <div class="box theme-teal" style="left:680px; top:618px; width:130px; height:96px;">
+    <div class="box-icon" style="font-size:18px;">✅</div>
+    <div class="box-title" style="font-size:11px;">รับขวด</div>
+    <div class="box-sub" style="font-size:9px;">status = PROCESSING<br>solenoid เปิด · +1 คะแนน<br>lipo / cvitt / m150</div>
+  </div>
+
+  <!-- REJECTED -->
+  <div class="box theme-red" style="left:840px; top:618px; width:126px; height:96px;">
+    <div class="box-icon" style="font-size:18px;">❌</div>
+    <div class="box-title" style="font-size:11px;">ปฏิเสธขวด</div>
+    <div class="box-sub" style="font-size:9px;">status = REJECTED<br>solenoid ปิด · ไม่ได้คะแนน<br>ยี่ห้อที่ไม่รองรับ</div>
+  </div>
+
+  <!-- Step 7 badge for ACCEPTED -->
+  <div class="step-badge" style="left:678px; top:616px; background:#2dd4bf; color:#042f2e;">7a</div>
+  <!-- Step 7 badge for REJECTED -->
+  <div class="step-badge" style="left:838px; top:616px; background:#f87171; color:#450a0a;">7b</div>
+
+
+  <!-- ════════════════════════════════════════
+       LEGEND
+  ════════════════════════════════════════ -->
+  <div style="position:absolute; bottom:0; left:0; display:flex; gap:16px; align-items:center;">
+    <div style="font-size:8.5px; color:#4b5563; font-weight:600; text-transform:uppercase; letter-spacing:1px;">Legend:</div>
+    <div style="display:flex;align-items:center;gap:4px;"><div style="width:20px;height:2px;background:#34d399;"></div><span style="font-size:8.5px;color:#6b7280;">User / Web</span></div>
+    <div style="display:flex;align-items:center;gap:4px;"><div style="width:20px;height:2px;background:#fbbf24;"></div><span style="font-size:8.5px;color:#6b7280;">Hardware</span></div>
+    <div style="display:flex;align-items:center;gap:4px;"><div style="width:20px;height:2px;background:#60a5fa;"></div><span style="font-size:8.5px;color:#6b7280;">Cloud Function</span></div>
+    <div style="display:flex;align-items:center;gap:4px;"><div style="width:20px;height:2px;background:#818cf8;"></div><span style="font-size:8.5px;color:#6b7280;">Firebase</span></div>
+    <div style="display:flex;align-items:center;gap:4px;"><div style="width:20px;height:2px;background:#a78bfa;"></div><span style="font-size:8.5px;color:#6b7280;">AI (Python)</span></div>
+    <div style="display:flex;align-items:center;gap:4px;"><div style="width:20px;height:2px;background:#374151;border-top:1.5px dashed #6b7280;"></div><span style="font-size:8.5px;color:#6b7280;">Firestore listener (poll)</span></div>
+  </div>
+
+  <!-- ════════════════════════════════════════
+       FLOW NUMBERS SUMMARY (right side)
+  ════════════════════════════════════════ -->
+  <div style="position:absolute; right:0; top:0; width:132px; background:rgba(17,24,39,.8); border:1px solid #1f2937; border-radius:10px; padding:10px 12px; font-size:8.5px; line-height:1.8; color:#9ca3af;">
+    <div style="font-size:9px; font-weight:700; color:#e5e7eb; margin-bottom:5px; letter-spacing:0.5px;">FLOW SEQUENCE</div>
+    <div><span style="color:#34d399; font-weight:700;">①</span> ผู้ใช้ Login QR</div>
+    <div><span style="color:#fbbf24; font-weight:700;">②</span> ใส่ขวด → Sensor</div>
+    <div><span style="color:#60a5fa; font-weight:700;">③</span> POST ภาพ label</div>
+    <div><span style="color:#818cf8; font-weight:700;">④</span> status → "ready"</div>
+    <div><span style="color:#fbbf24; font-weight:700;">⑤</span> Slave ถ่าย cap</div>
+    <div><span style="color:#a78bfa; font-weight:700;">⑥</span> AI วิเคราะห์ YOLO</div>
+    <div><span style="color:#2dd4bf; font-weight:700;">⑦a</span> รับ → +คะแนน</div>
+    <div><span style="color:#f87171; font-weight:700;">⑦b</span> ปฏิเสธ → คืนขวด</div>
+  </div>
+
+</div>
+
+</body>
+</html>

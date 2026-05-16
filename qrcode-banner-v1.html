@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Gloop — สแกน QR รับคะแนน (v1)</title>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: "Noto Sans Thai", sans-serif;
+      background: #e8f5e9;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      padding: 24px;
+    }
+
+    .banner {
+      position: relative;
+      width: 480px;
+      background: linear-gradient(145deg, #2d9e5f 0%, #1a7a40 55%, #155f32 100%);
+      border-radius: 28px;
+      overflow: hidden;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.25);
+      padding: 36px 36px 32px;
+      color: #fff;
+    }
+
+    .banner::before {
+      content: "";
+      position: absolute;
+      top: -80px; right: -80px;
+      width: 280px; height: 280px;
+      background: rgba(255,255,255,0.07);
+      border-radius: 50%;
+    }
+    .banner::after {
+      content: "";
+      position: absolute;
+      bottom: -100px; left: -60px;
+      width: 320px; height: 320px;
+      background: rgba(255,255,255,0.05);
+      border-radius: 50%;
+    }
+
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 20px;
+      position: relative; z-index: 1;
+    }
+
+    .logo-img {
+      width: 64px; height: 64px;
+      border-radius: 16px;
+      background: #fff;
+      padding: 6px;
+      object-fit: contain;
+      flex-shrink: 0;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }
+
+    .brand-name {
+      font-size: 30px;
+      font-weight: 900;
+      color: #fff;
+      line-height: 1;
+      letter-spacing: -0.5px;
+    }
+
+    .brand-sub {
+      font-size: 12px;
+      color: rgba(255,255,255,0.75);
+      margin-top: 3px;
+      font-weight: 400;
+    }
+
+    .headline {
+      font-size: 22px;
+      font-weight: 800;
+      color: #fff;
+      line-height: 1.35;
+      margin-bottom: 20px;
+      position: relative; z-index: 1;
+    }
+
+    .headline .highlight { color: #a8f0c0; }
+
+    .body-row {
+      display: flex;
+      gap: 24px;
+      align-items: center;
+      position: relative; z-index: 1;
+    }
+
+    .qr-wrap {
+      flex-shrink: 0;
+      background: #fff;
+      border-radius: 20px;
+      padding: 14px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+    }
+
+    #qrcode canvas, #qrcode img {
+      border-radius: 8px;
+      display: block;
+    }
+
+    .qr-label {
+      font-size: 10px;
+      font-weight: 700;
+      color: #16a34a;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+    }
+
+    .info {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .scan-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      background: rgba(255,255,255,0.18);
+      border: 1.5px solid rgba(255,255,255,0.35);
+      border-radius: 40px;
+      padding: 7px 14px;
+      font-size: 13px;
+      font-weight: 700;
+      color: #fff;
+      width: fit-content;
+    }
+
+    .scan-badge .dot {
+      width: 8px; height: 8px;
+      background: #a8f0c0;
+      border-radius: 50%;
+    }
+
+    .info-title {
+      font-size: 18px;
+      font-weight: 800;
+      color: #fff;
+      line-height: 1.4;
+    }
+
+    .info-desc {
+      font-size: 13px;
+      color: rgba(255,255,255,0.8);
+      line-height: 1.7;
+    }
+
+    .url-pill {
+      display: inline-block;
+      background: #fff;
+      color: #16a34a;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 5px 14px;
+      border-radius: 20px;
+      width: fit-content;
+    }
+
+    .footer {
+      margin-top: 20px;
+      padding-top: 16px;
+      border-top: 1px solid rgba(255,255,255,0.2);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      position: relative; z-index: 1;
+    }
+
+    .machine-badge {
+      font-size: 11px;
+      font-weight: 600;
+      color: rgba(255,255,255,0.6);
+    }
+
+    .free-badge {
+      background: #a8f0c0;
+      color: #155f32;
+      font-size: 12px;
+      font-weight: 800;
+      padding: 5px 16px;
+      border-radius: 20px;
+    }
+
+    @media print {
+      body { background: white; padding: 0; min-height: unset; }
+      .banner { box-shadow: none; margin: 0 auto; }
+    }
+  </style>
+</head>
+<body>
+<div class="banner">
+  <div class="header">
+    <img class="logo-img" src="bottlesImage/logoGLOOP/image.png" alt="Gloop" />
+    <div>
+      <div class="brand-name">Gloop</div>
+      <div class="brand-sub">เครื่องรับคืนขวดอัจฉริยะ</div>
+    </div>
+  </div>
+
+  <div class="headline">
+    #ฮาวทูสะสมแต้ม<br>
+    <span class="highlight">แค่สแกนก็ได้แล้ว ฟรี!</span>
+  </div>
+
+  <div class="body-row">
+    <div class="qr-wrap">
+      <div id="qrcode"></div>
+      <div class="qr-label">สแกน QR</div>
+    </div>
+    <div class="info">
+      <div class="scan-badge"><span class="dot"></span>สแกน QR CODE</div>
+      <div class="info-title">ใส่ขวด<br>รับคะแนนทันที</div>
+      <div class="info-desc">ส่งขวดพลาสติก สะสมคะแนน<br>แลกของรางวัลได้เลย</div>
+      <div class="url-pill">@gloop.th</div>
+    </div>
+  </div>
+
+  <div class="footer">
+    <div class="machine-badge">Gloop_01 · glooprvm.web.app</div>
+    <div class="free-badge">เร็วๆ นี้ →</div>
+  </div>
+</div>
+
+<script>
+  new QRCode(document.getElementById("qrcode"), {
+    text: "https://glooprvm.web.app",
+    width: 160,
+    height: 160,
+    colorDark:  "#155f32",
+    colorLight: "#ffffff",
+    correctLevel: QRCode.CorrectLevel.H,
+  });
+</script>
+</body>
+</html>
